@@ -1,0 +1,13 @@
+C:\Users\jakeb\AppData\Local\Programs\Python\Python311\Lib\site-packages\customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py:179: UserWarning: CTkLabel Warning: Given image is not CTkImage but <class 'PIL.ImageTk.PhotoImage'>. Image can not be scaled on HighDPI displays, use CTkImage instead.
+
+  warnings.warn(f"{type(self).__name__} Warning: Given image is not CTkImage but {type(image)}. Image can not be scaled on HighDPI displays, use CTkImage instead.\n")
+2026-08-04 19:37:32,276 INFO Focus generate clicked
+2026-08-04 19:37:32,276 INFO Focus gallery clicked
+2026-08-04 19:37:32,635 INFO Focus settings clicked
+2026-08-04 19:37:32,698 INFO Generate button clicked
+2026-08-04 19:37:32,714 INFO Starting generate workflow
+2026-08-04 19:37:33,377 ERROR Update cursors error: 'CTkFrame' object has no attribute '_canvas'
+2026-08-04 19:37:33,581 ERROR Update cursors error: 'CTkFrame' object has no attribute '_canvas'
+2026-08-04 19:37:33,647 ERROR Update cursors error: 'CTkFrame' object has no attribute '_canvas'
+2026-08-04 19:37:34,200 ERROR Set scaling error: 'CTkFrame' object has no attribute '_canvas'
+2026-08-04 19:37:34,600 ERROR Set scaling error: 'CTkFrame' object has no attribute '_canvas'

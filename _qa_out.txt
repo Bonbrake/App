@@ -1,0 +1,29 @@
+==============================================================================
+PHASE 1: CONSTRUCTION
+==============================================================================
+  PASS  App constructs
+
+total widgets: 170
+
+==============================================================================
+PHASE 2: EVERY BUTTON'S COMMAND
+==============================================================================
+buttons found: 8
+  PASS  Button 'Generate' invoke
+  PASS  Button 'Gallery' invoke
+  PASS  Button 'Settings' invoke
+  PASS  Button 'Generate  (Ctrl+E)' invoke
+  PASS  Button 'Open Output' invoke
+  PASS  Button 'Restart Backend' invoke
+  PASS  Button 'View Log' invoke
+  PASS  Button 'Save History' invoke
+
+==============================================================================
+PHASE 3: EVERY OPTION MENU (all values)
+==============================================================================
+option menus found: 9
+  PASS  OptionMenu[Dark] set 'Dark'
+  PASS  OptionMenu[Dark] set 'Light'
+  PASS  OptionMenu[Dark] set 'System'
+  PASS  OptionMenu[90%] set '90%'
+  PASS  OptionMenu[90%] set '100%'

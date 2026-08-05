@@ -1,0 +1,3 @@
+built up to tabview.set('Text to Image')
+preview pane built
+load_recent done, widget count: 78
