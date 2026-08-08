@@ -256,8 +256,26 @@ def _resolve_has_video():
 
 
 # ---- Paths ----
-COMFYUI_DIR = r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\ComfyUI"
-PYTHON_PATH = r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\python_embeded\python.exe"
+# Auto-detect the local ComfyUI portable install instead of hardcoding a
+# user-specific path, so the published repo runs on any machine.
+def _resolve_comfyui_portable_dir():
+    import os as _os
+    # Explicit override always wins (honor user intent even if not yet created).
+    env = _os.environ.get("COMFYUI_PORTABLE_DIR")
+    if env:
+        return _os.path.normpath(_os.path.expanduser(_os.path.expandvars(env)))
+    _here = _os.path.dirname(_os.path.abspath(__file__))
+    for cand in (_os.path.join(_here, "..", "ComfyUI_windows_portable"),
+                 _os.path.join(_here, "..", "..", "ComfyUI_windows_portable"),
+                 _os.path.join(_os.getcwd(), "ComfyUI_windows_portable"),
+                 r"C:\ComfyUI-Desktop"):
+        if _os.path.isdir(cand):
+            return _os.path.normpath(cand)
+    return r"C:\ComfyUI-Desktop"
+
+_PORTABLE_DIR = _resolve_comfyui_portable_dir()
+COMFYUI_DIR = _os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI")
+PYTHON_PATH = _os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "python_embeded", "python.exe")
 MAIN_PY = "main.py"
 COMFYUI_URL = "http://127.0.0.1:8188"
 
@@ -2470,7 +2488,7 @@ class ComfyUIApp:
                 # the first frame as a reference image and the soundtrack as a standalone
                 # ref_audio so the source video still drives the generation.
                 import shutil as _sh, tempfile as _tf, subprocess as _sp
-                _ff = _sh.which("ffmpeg") or r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\ffmpeg.exe"
+                _ff = _sh.which("ffmpeg") or _os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ffmpeg.exe")
                 if not hasattr(self, "_v2v_tmp"):
                     self._v2v_tmp = _tf.mkdtemp(prefix="h3v2v_")
                 fpng = os.path.join(self._v2v_tmp, "v%df.png" % vid_i)
@@ -2628,9 +2646,9 @@ class ComfyUIApp:
         ff = None
         winget = os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages")
         candidates = [
-            r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\ffmpeg.exe",
-            r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\ComfyUI\ffmpeg.exe",
-            r"C:\ComfyUI-Desktop\ffmpeg.exe",
+            _os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ffmpeg.exe"),
+            _os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI", "ffmpeg.exe"),
+            _os.path.join(_PORTABLE_DIR, "ffmpeg.exe"),
         ]
         if os.path.isdir(winget):
             for root, _dirs, files in os.walk(winget):
