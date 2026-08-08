@@ -29,7 +29,7 @@ import time
 import os
 
 COMFY_PORT = 8188
-SENTINEL = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser(r"~/AppData/Local")),
+SENTINEL = os.path.join(os.getenv("LOCALAPPDATA", os.path.normpath(os.path.expanduser(r"~/AppData/Local"))),
                         "ComfyUI_Desktop", "backend_pid.txt")
 
 def _run(cmd):

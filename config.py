@@ -97,12 +97,17 @@ TOOLTIPS = {
     "Format": ("Output Format", "Select PNG or Power-of-Two TGA (for game engine textures).")
 }
 
+def resolve(path):
+    """Expand ~ and normalize separators to the OS-native form."""
+    return os.path.normpath(os.path.expanduser(path))
+
+
 class ConfigManager:
     """Manages persistent application settings in config.json."""
     def __init__(self, config_path=CONFIG_FILE):
         self.config_path = config_path
         self.settings = {
-            "output_dir": OUTPUT_DIR,
+            "output_dir": resolve(OUTPUT_DIR),
             "vram_threshold": "90% (Default)",
             "default_format": "PNG",
             "default_sampler": "dpmpp_2m",
@@ -119,7 +124,8 @@ class ConfigManager:
                 self.settings.update(data)
                 global OUTPUT_DIR
                 if "output_dir" in data:
-                    OUTPUT_DIR = os.path.expanduser(data["output_dir"])
+                    OUTPUT_DIR = resolve(data["output_dir"])
+                    self.settings["output_dir"] = OUTPUT_DIR
             except Exception as e:
                 logging.error("Failed to load config.json: %s", e)
 
@@ -128,7 +134,8 @@ class ConfigManager:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self.settings, f, indent=2)
             global OUTPUT_DIR
-            OUTPUT_DIR = self.settings.get("output_dir", OUTPUT_DIR)
+            OUTPUT_DIR = resolve(self.settings.get("output_dir", OUTPUT_DIR))
+            self.settings["output_dir"] = OUTPUT_DIR
             os.makedirs(OUTPUT_DIR, exist_ok=True)
             return True
         except Exception as e:
