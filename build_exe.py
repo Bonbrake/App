@@ -22,7 +22,7 @@ subprocess.run(["rm", "-rf", "build", "dist"], shell=True)
 # Build MUST use Python 3.11 (has PIL/numpy/customtkinter/imageio).
 # Using sys.executable (Hermes venv) produces an 18MB broken stub that
 # crashes on import at launch because the venv's Tcl/tkinter is broken.
-PY311 = r"C:\Users\jakeb\AppData\Local\Programs\Python\Python311\python.exe"
+PY311 = os.path.expanduser(r"~/AppData/Local/Programs/Python/Python311/python.exe")
 if not os.path.exists(PY311):
     print("BUILD FAILED: Python 3.11 not found at %s" % PY311)
     sys.exit(4)

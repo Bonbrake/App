@@ -253,13 +253,15 @@ def _resolve_has_video():
 
 
 # ---- Paths ----
-COMFYUI_DIR = r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\ComfyUI"
-PYTHON_PATH = r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\python_embeded\python.exe"
+# Derived from the app's own location so the project is portable.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+COMFYUI_DIR = os.path.join(_APP_DIR, "ComfyUI_windows_portable", "ComfyUI")
+PYTHON_PATH = os.path.join(_APP_DIR, "ComfyUI_windows_portable", "python_embeded", "python.exe")
 MAIN_PY = "main.py"
 COMFYUI_URL = "http://127.0.0.1:8188"
-OUTPUT_DIR = r"C:\Users\jakeb\Pictures\ComfyUI_Generated"
+OUTPUT_DIR = os.path.expanduser(r"~/Pictures/ComfyUI_Generated")
 INPUT_DIR = os.path.join(OUTPUT_DIR, "input")
-LOG_DIR = r"C:\Users\jakeb\Logs"
+LOG_DIR = os.path.expanduser(r"~/Logs")
 LOG_FILE = os.path.join(LOG_DIR, "ComfyUI_App.log")
 SERVER_LOG_FILE = os.path.join(LOG_DIR, "comfyui_server.log")
 HISTORY_FILE = os.path.join(OUTPUT_DIR, "ComfyUI_prompt_history.json")
@@ -301,6 +303,7 @@ def _flush_error(msg, *args):
 
 # ---- Models & Presets ----
 MODELS = {
+    # Optional model — checkpoint file is NOT bundled; user must supply it.
     "CyberRealistic XL (Uncensored)": {
         "file": "cyberrealisticXL_v20.safetensors", "value": "cyberrealisticXL_v20.safetensors",
         "w": 768, "h": 768, "steps": 30, "cfg": 6.0, "sampler": "dpmpp_2m", "scheduler": "karras"

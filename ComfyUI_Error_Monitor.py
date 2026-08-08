@@ -10,7 +10,7 @@ import time
 import sys
 from pathlib import Path
 
-LOG_DIR = r"C:\Users\jakeb\Logs"
+LOG_DIR = os.path.expanduser(r"~/Logs")
 ERROR_QUEUE_FILE = os.path.join(LOG_DIR, "ComfyUI_Error_Queue.json")
 
 def process_error_queue():
