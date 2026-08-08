@@ -3163,7 +3163,7 @@ class ComfyUIApp:
                 orphan_reap.reap_orphan_8188(my_pid=getattr(self, "backend", None)
                                              and self.backend.pid)
             except Exception as _e:
-                print("orphan reap skipped:", _e)
+                logging.warning("orphan reap skipped: %s", _e)
             # Kill only a previously-tracked backend instance (avoid nuking
             # unrelated python_embeded processes the user may be running).
             self._terminate_backend()
@@ -3200,7 +3200,7 @@ class ComfyUIApp:
                                             import orphan_reap
                                             orphan_reap.write_sentinel(self.backend.pid)
                                         except Exception as _e:
-                                            print("sentinel write skipped:", _e)
+                                            logging.warning("sentinel write skipped: %s", _e)
                                         if self._running:
                                             self.root.after(3000, self._start_header_gradient)
                                         return
