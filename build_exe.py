@@ -1,10 +1,13 @@
 import subprocess, os, sys, shutil
 import PyInstaller  # fail fast if missing
 
-os.chdir(r"C:\ComfyUI-Desktop")
+# Repo root = directory containing this script (no hardcoded machine path),
+# so the build works from any checkout location.
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+os.chdir(REPO_ROOT)
 
-EXE = r"C:\ComfyUI-Desktop\dist\ComfyUI_Uncensored.exe"
-ROLLBACK = r"C:\ComfyUI-Desktop\_last_good\ComfyUI_Uncensored.exe"
+EXE = os.path.join(REPO_ROOT, "dist", "ComfyUI_Uncensored.exe")
+ROLLBACK = os.path.join(REPO_ROOT, "_last_good", "ComfyUI_Uncensored.exe")
 
 # Preserve the previous good build so a failed build never strands the shortcut.
 # NOTE: must live OUTSIDE dist/ because we rm -rf dist right after.
@@ -30,7 +33,7 @@ BUILD_PYTHON = PY311
 
 result = subprocess.run(
     [BUILD_PYTHON, "-m", "PyInstaller",
-     r"C:\ComfyUI-Desktop\ComfyUI_Uncensored.spec",
+     os.path.join(REPO_ROOT, "ComfyUI_Uncensored.spec"),
      "--clean", "--noconfirm"],
     capture_output=True, text=True,
 )
@@ -39,7 +42,7 @@ print("STDOUT:\n", result.stdout[-2000:])
 print("STDERR:\n", result.stderr[-2000:])
 print("Return code:", result.returncode)
 
-exe = r"C:\ComfyUI-Desktop\dist\ComfyUI_Uncensored.exe"
+exe = os.path.join(REPO_ROOT, "dist", "ComfyUI_Uncensored.exe")
 if not os.path.exists(exe):
     print("BUILD FAILED: exe not produced")
     sys.exit(2)

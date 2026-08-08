@@ -21,7 +21,7 @@ def process_error_queue():
     try:
         with open(ERROR_QUEUE_FILE, "r") as f:
             queue = json.load(f)
-    except:
+    except (OSError, json.JSONDecodeError):
         return []
     
     new_errors = []

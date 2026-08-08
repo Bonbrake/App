@@ -1,12 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 
-comfy_dir = r"C:\ComfyUI-Desktop\ComfyUI_windows_portable"
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+comfy_dir = os.path.join(REPO_ROOT, "ComfyUI_windows_portable")
 icon_path = os.path.join(comfy_dir, "python_embeded", "Lib", "site-packages", "comfyui_frontend_package", "static", "assets", "favicon.ico")
 
 a = Analysis(
     ['ComfyUI_App.py'],
-    pathex=[r"C:\ComfyUI-Desktop"],
+    pathex=[REPO_ROOT],
     binaries=[],
     datas=[(icon_path, 'static/assets')] if os.path.exists(icon_path) else [],
     hiddenimports=['PIL', 'PIL._tkinter_finder', 'PIL.ImageTk', 'win32mica', 'requests', 'ctypes', 'ctypes.wintypes',
