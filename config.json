@@ -1,0 +1,8 @@
+{
+  "output_dir": "C:\\Users\\user\\Pictures\\ComfyUI_Generated",
+  "vram_threshold": "90% (Default)",
+  "default_format": "PNG",
+  "default_sampler": "dpmpp_2m",
+  "default_scheduler": "karras",
+  "theme_mode": "Dark"
+}
