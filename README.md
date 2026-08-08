@@ -27,7 +27,6 @@ image generation — no browser required.
 | `config.py` / `config.json` | Runtime settings, model definitions, paths |
 | `backend.py` | Backend (ComfyUI server) lifecycle management |
 | `glass.py` / `gallery.py` / `widgets.py` | UI helpers (acrylic background, gallery, custom widgets) |
-| `ComfyUI_Error_Monitor.py` | Error monitoring / log capture |
 | `orphan_reap.py` | Stray backend-process cleanup |
 | `comfyui_desktop/` | UI subpackage (windows, diagnostics, ws client, backend manager) |
 | `build_exe.py` / `ComfyUI_Uncensored.spec` / `app.manifest` | PyInstaller build → `dist/ComfyUI_Uncensored.exe` |
