@@ -292,14 +292,14 @@ def _open_folder(path):
             subprocess.Popen(["xdg-open", path])
     except Exception:
         pass
-OUTPUT_DIR = r"C:\Users\user\Pictures\ComfyUI_Generated"
+OUTPUT_DIR = os.path.expanduser(r"~/Pictures/ComfyUI_Generated")
 # Stage img2img/upscale inputs into ComfyUI's OWN input directory so LoadImage
 # can read them. ComfyUI is launched with default args (no --input-directory),
 # so it reads from <COMFYUI_DIR>/input/. Staging to Pictures/.../input/ (the old
 # value) made LoadImage fail with "Invalid image file" — the files were never
 # where ComfyUI looked. Source: verified against live /object_info/LoadImage.
 INPUT_DIR = os.path.join(COMFYUI_DIR, "input")
-LOG_DIR = r"C:\Users\user\Logs"
+LOG_DIR = os.path.expanduser(r"~/Logs")
 LOG_FILE = os.path.join(LOG_DIR, "ComfyUI_App.log")
 SERVER_LOG_FILE = os.path.join(LOG_DIR, "comfyui_server.log")
 HISTORY_FILE = os.path.join(OUTPUT_DIR, "ComfyUI_prompt_history.json")
@@ -815,7 +815,7 @@ class ComfyUIApp:
             init_diagnostics(os.path.dirname(os.path.abspath(__file__)), install_crash_hook=True, app_self=self)
             breadcrumb("app_start")
         except Exception as e:
-            print("Diagnostics init warning:", e)
+            logging.warning("Diagnostics init warning: %s", e)
         root.title("ComfyUI Uncensored")
         root.geometry("1280x1120")
         root.minsize(900, 640)

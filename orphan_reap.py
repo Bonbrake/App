@@ -8,7 +8,7 @@ is DEAD. A live EXE that still owns its server is NEVER killed (Rule: nothing
 the user is using dies).
 
 Uses a SENTINEL FILE written by ComfyUI_App._start_backend:
-  %LOCALAPPDATA%\ComfyUI_Desktop\backend_pid.txt  (contains the backend PID)
+  %LOCALAPPDATA%/ComfyUI_Desktop/backend_pid.txt  (contains the backend PID)
 
 If a server exists on :8188 but its PID != sentinel PID (and sentinel PID is
 dead), it's an orphan from a prior EXE run -> reap it.
@@ -29,7 +29,7 @@ import time
 import os
 
 COMFY_PORT = 8188
-SENTINEL = os.path.join(os.getenv("LOCALAPPDATA", r"C:\Users\user\AppData\Local"),
+SENTINEL = os.path.join(os.getenv("LOCALAPPDATA", os.path.expanduser(r"~/AppData/Local")),
                         "ComfyUI_Desktop", "backend_pid.txt")
 
 def _run(cmd):

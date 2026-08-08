@@ -8,8 +8,9 @@ import json
 import logging
 from pathlib import Path
 
-# Base Directory Resolution
-BASE_DIR = Path(r"C:\ComfyUI-Desktop")
+# Base Directory Resolution — derived from the app's own location so the
+# project is portable and not tied to a hardcoded machine path.
+BASE_DIR = Path(__file__).resolve().parent
 
 # System Paths
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
@@ -35,6 +36,8 @@ MODELS = {
         "file": "epicrealismXL_pure.safetensors",
         "w": 768, "h": 768, "steps": 35, "cfg": 6.5, "sampler": "dpmpp_2m", "scheduler": "karras"
     },
+    # Optional model — checkpoint file is NOT bundled with the repo; the user
+    # must supply cyberrealisticXL_v20.safetensors in models/checkpoints/.
     "CyberRealistic XL": {
         "file": "cyberrealisticXL_v20.safetensors",
         "w": 768, "h": 768, "steps": 30, "cfg": 6.0, "sampler": "dpmpp_2m", "scheduler": "karras"
@@ -116,7 +119,7 @@ class ConfigManager:
                 self.settings.update(data)
                 global OUTPUT_DIR
                 if "output_dir" in data:
-                    OUTPUT_DIR = data["output_dir"]
+                    OUTPUT_DIR = os.path.expanduser(data["output_dir"])
             except Exception as e:
                 logging.error("Failed to load config.json: %s", e)
 
