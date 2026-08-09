@@ -15,6 +15,10 @@ import datetime
 import logging
 import tkinter as tk
 
+# Module-level alias so both _resolve_comfyui_portable_dir() (which rebinds
+# `os` as `_os` locally) and module-level path constants can use `_os`.
+_os = os
+
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import tkinter.font as tkfont
