@@ -2618,6 +2618,7 @@ class ComfyUIApp:
                 self.last_prompt_id = r.json().get("prompt_id")
                 self._gen_mode = "video"
                 self._poll_attempts = 0
+                self._poll_handoff = True
                 self.root.after(200, self._poll_history)
         self._set_status("Queued %d H3 V2V job(s)..." % max(1, batch))
         self._generate_lock = False
@@ -2772,7 +2773,10 @@ class ComfyUIApp:
         self._last_generate = time.time()
         self._generate_lock = True
         self._gen_start_time = time.time()
-        self._gen_start_time = time.time()
+        # Cleared here and set only when a job is successfully handed off to
+        # _poll_history, so the finally block can tell "queued, poller owns the
+        # buttons" from "failed, restore the buttons now".
+        self._poll_handoff = False
         try:
             if mode == "t2v":
                 self._set_status("Building H3 video workflow...")
@@ -2822,6 +2826,7 @@ class ComfyUIApp:
                         self.last_prompt_id = r.json().get("prompt_id")
                         self._gen_mode = "video"
                         self._poll_attempts = 0
+                        self._poll_handoff = True
                         self.root.after(200, self._poll_history)
                 self._set_status("Queued %d H3 video job(s) (%dx%d, %ds)..." % (max(1, batch), w, h, dur))
                 return
@@ -2854,27 +2859,45 @@ class ComfyUIApp:
             self.last_prompt_id = r.json().get("prompt_id")
             self._gen_mode = "video"
             self._poll_attempts = 0
+            self._poll_handoff = True
             self.root.after(200, self._poll_history)
         except Exception as e:
             logging.error("Video gen error: %s", e)
             self._set_status("Video gen error: %s" % str(e)[:40])
         finally:
             self._generate_lock = False
-            # Release VRAM after image gen (mutual exclusion with video gen)
+            # B5: release VRAM after every video gen (mutual exclusion with
+            # image gen). This single call replaces three identical duplicated
+            # /free POSTs that accumulated here across earlier patches -- each
+            # had a 5s timeout, so an unreachable backend stalled the UI for up
+            # to 15s on every generation instead of 5s.
             try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+                requests.post(COMFYUI_URL + "/free",
+                              json={"unload_models": True, "free_memory": True},
+                              timeout=5)
             except Exception:
                 pass
-            # Release VRAM after image gen (mutual exclusion with video gen)
+            # Restore the video buttons on EVERY exit path. Without this an
+            # early return (queue failure, unknown mode, build failure) left
+            # the tab's button reading "Cancel" even though nothing was
+            # running, and clicking it tried to cancel a non-existent job.
             try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+                if not self._poll_pending():
+                    self._reset_video_buttons()
             except Exception:
                 pass
-            # B5 FIX: release VRAM after every video gen (mutual exclusion with image gen)
-            try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
-            except Exception:
-                pass
+
+    def _poll_pending(self):
+        """True when this invocation handed a queued job to _poll_history.
+
+        Used to decide whether the video buttons may be reset immediately.
+        A successful queue hands off to _poll_history, which owns the button
+        state until the job finishes; a failed queue has no poller and must
+        restore the buttons itself. Deliberately a per-invocation flag rather
+        than an inspection of last_prompt_id, which survives from previous
+        runs and would wrongly suppress the reset after a failed queue.
+        """
+        return bool(getattr(self, "_poll_handoff", False))
 
     def _has_tab(self, name):
         """True if `name` is currently a tab in self.tabview.
@@ -3862,6 +3885,14 @@ class ComfyUIApp:
             self._set_status("Polling timed out")
             if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
                 self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal", command=self._start_generate)
+            # Release the generation lock and restore the video buttons too.
+            # Previously only gen_btn was reset here, so a timeout left
+            # _generate_lock stuck True -- every later Generate click hit the
+            # "locked" guard and returned silently, and the video tabs kept
+            # showing "Cancel". The app appeared dead until restart.
+            self._reset_video_buttons()
+            self._generate_lock = False
+            self._gen_start_time = None
             return
         self._poll_attempts += 1
         try:
