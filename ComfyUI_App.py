@@ -31,6 +31,11 @@ from glass import AcrylicBackground, make_gradient, _hue_shift_color
 
 from comfyui_desktop.diagnostics import dump_report, DIAG_DIR
 from comfyui_desktop.diagnostics import breadcrumb, _last_crash_ts
+# Debug-tab button callbacks. These are referenced by the "Save Report" and
+# "Build Debug Bundle" buttons in _build_debug_tab but were never imported,
+# so clicking either raised NameError inside the lambda (the tab itself built
+# fine, which is why the failure only appeared on click).
+from comfyui_desktop.diagnostics import diagnostics_button_command, bundle_button_command
 
 import tkinter as _tk
 try:
@@ -1941,7 +1946,7 @@ class ComfyUIApp:
                                      dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                      dropdown_hover_color=DROPDOWN_HOVER, width=120)
         dur_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="w")
-        ToolTip(dur_menu, "Clip length. 17 frames/block @ 24fps: 3s~73 frames, 5s~124, 9s~217, 14s~337. Longer = slower on 8GB.")
+        ToolTip(dur_menu, "Clip length. Frames snap to the 17k+5 grid @ 24fps: 3s=73 frames, 5s=124, 9s=226, 14s=345. Longer = slower on 8GB.")
 
         # --- Motion & Options (research: camera presets, prompt enhance, loop, batch) ---
         self.video_camera_var = ctk.StringVar(value="Static")
@@ -2307,7 +2312,7 @@ class ComfyUIApp:
                                      dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                      dropdown_hover_color=DROPDOWN_HOVER, width=120)
         dur_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="w")
-        ToolTip(dur_menu, "Clip length (17 frames/block @ 24fps).")
+        ToolTip(dur_menu, "Clip length. Frames snap to the 17k+5 grid @ 24fps (3s=73, 5s=124, 9s=226, 14s=345).")
 
         # Aspect ratio (research parity)
         self.v2v_ar_var = ctk.StringVar(value="16:9 Widescreen")
