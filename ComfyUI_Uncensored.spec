@@ -1,7 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
+import sys
 
-REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+# PyInstaller is supposed to expose __file__ to the spec, but some 6.x builds
+# exec the spec without it in the namespace. Fall back to sys.argv[0] so the
+# spec resolves REPO_ROOT correctly either way.
+try:
+    _SPEC_PATH = __file__
+except NameError:
+    _SPEC_PATH = sys.argv[0]
+REPO_ROOT = os.path.dirname(os.path.abspath(_SPEC_PATH))
 comfy_dir = os.path.join(REPO_ROOT, "ComfyUI_windows_portable")
 icon_path = os.path.join(comfy_dir, "python_embeded", "Lib", "site-packages", "comfyui_frontend_package", "static", "assets", "favicon.ico")
 
