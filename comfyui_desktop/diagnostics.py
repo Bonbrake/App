@@ -295,7 +295,8 @@ def _gpu_info() -> dict:
         r = subprocess.run(
             ["nvidia-smi", "--query-gpu=name,memory.total,memory.used,memory.free,driver_version",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         )
         if r.returncode == 0:
             parts = [p.strip() for p in r.stdout.strip().split(",")]

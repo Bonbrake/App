@@ -34,7 +34,8 @@ SENTINEL = os.path.join(os.getenv("LOCALAPPDATA", os.path.normpath(os.path.expan
 
 def _run(cmd):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0).stdout
     except Exception:
         return ""
 
@@ -67,7 +68,8 @@ def parent_pid_of(pid):
         out = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
              f"(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").ParentProcessId"],
-            capture_output=True, text=True, timeout=10).stdout
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0).stdout
         out = out.strip()
         if out and out.isdigit():
             return int(out)
@@ -83,7 +85,8 @@ def pid_alive(pid):
         out = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
              f"if (Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\") {{ \"YES\" }} else {{ \"NO\" }}"],
-            capture_output=True, text=True, timeout=10).stdout.strip()
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0).stdout.strip()
         return out == "YES"
     except Exception:
         pass
