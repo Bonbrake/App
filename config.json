@@ -4,5 +4,6 @@
   "default_format": "PNG",
   "default_sampler": "dpmpp_2m",
   "default_scheduler": "karras",
-  "theme_mode": "Dark"
+  "theme_mode": "Dark",
+  "tooltips_enabled": "1"
 }
