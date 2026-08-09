@@ -15,6 +15,10 @@ import datetime
 import logging
 import tkinter as tk
 
+# Module-level alias so both _resolve_comfyui_portable_dir() (which rebinds
+# `os` as `_os` locally) and module-level path constants can use `_os`.
+_os = os
+
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import tkinter.font as tkfont
@@ -31,6 +35,11 @@ from glass import AcrylicBackground, make_gradient, _hue_shift_color
 
 from comfyui_desktop.diagnostics import dump_report, DIAG_DIR
 from comfyui_desktop.diagnostics import breadcrumb, _last_crash_ts
+# Debug-tab button callbacks. These are referenced by the "Save Report" and
+# "Build Debug Bundle" buttons in _build_debug_tab but were never imported,
+# so clicking either raised NameError inside the lambda (the tab itself built
+# fine, which is why the failure only appeared on click).
+from comfyui_desktop.diagnostics import diagnostics_button_command, bundle_button_command
 
 import tkinter as _tk
 try:
@@ -484,6 +493,14 @@ BG_CARD_ALT = ("#F8FAFC", "#22222E")
 BORDER = ("#94A3B8", "#2A2A3C")
 TEXT = ("#020617", "#F8FAFC")
 TEXT_MUTED = ("#334155", "#94A3B8")
+# TEXT_DIM: dimmed body text (video-thumbnail placeholders, "(no source
+# selected)" hints, secondary prompt boxes). It was referenced in 5 places but
+# never defined, so any code path touching it raised
+# NameError: name 'TEXT_DIM' is not defined — this aborted the V2V and
+# Refine tab builders outright, and would crash BOTH gallery refreshes as soon
+# as a .mp4/.webm appeared in the output folder. Aliased to the existing muted
+# token so the palette stays consistent with the rest of the design system.
+TEXT_DIM = TEXT_MUTED
 BRAND = ("#4338CA", "#6366F1")
 BRAND_HOVER = ("#3730A3", "#818CF8")
 ACCENT2 = ("#059669", "#10B981")
@@ -500,7 +517,17 @@ class ToolTip:
     """Hover tooltip — robust CTk 6.0-compatible implementation."""
     enabled = True
 
-    def __init__(self, widget, title, description, delay=TOOLTIP_DELAY):
+    def __init__(self, widget, title, description=None, delay=TOOLTIP_DELAY):
+        # Two call conventions exist across this file and BOTH must keep working:
+        #   3-arg: ToolTip(w, *TOOLTIPS["Key"])  -> ("Title", "Body text")
+        #   2-arg: ToolTip(w, "Body text")       -> body only, no bold heading
+        # PRESERVED_LEGACY: the 2-arg form (34 call sites in the video tabs)
+        # previously raised TypeError: missing argument 'description', which
+        # aborted _build_video_tab / _build_video_v2v_tab / _build_video_refine_tab
+        # mid-build and left those tabs half-rendered. Making `description`
+        # optional keeps every existing call site valid without editing them.
+        if description is None:
+            title, description = None, title
         self.widget = widget
         self.title = title
         self.description = description
@@ -577,10 +604,16 @@ class ToolTip:
         tw.wm_overrideredirect(True)
         tw.wm_geometry("+%d+%d" % (x, y))
         tw.configure(fg_color=("#1E1E2E", "#1E1E2E"))
-        ctk.CTkLabel(tw, text=self.title, font=ctk.CTkFont(size=10, weight="bold"),
-                     text_color="#F8FAFC", fg_color="transparent").pack(padx=10, pady=(8, 2), anchor="w")
+        if self.title:
+            ctk.CTkLabel(tw, text=self.title, font=ctk.CTkFont(size=10, weight="bold"),
+                         text_color="#F8FAFC", fg_color="transparent").pack(padx=10, pady=(8, 2), anchor="w")
+            body_pady = (0, 8)
+        else:
+            # 2-arg form: single body string with no bold heading. Balance the
+            # vertical padding so the tooltip doesn't look top-clipped.
+            body_pady = (8, 8)
         ctk.CTkLabel(tw, text=self.description, font=ctk.CTkFont(size=9),
-                     text_color="#94A3B8", wraplength=260, fg_color="transparent").pack(padx=10, pady=(0, 8), anchor="w")
+                     text_color="#94A3B8", wraplength=260, fg_color="transparent").pack(padx=10, pady=body_pady, anchor="w")
         tw.update_idletasks()
 
     def _do_hide(self):
@@ -1208,12 +1241,9 @@ class ComfyUIApp:
     def _focus_settings(self):
         try:
             logging.info("Focus settings clicked")
-            # PRESERVED_LEGACY: previously built a separate _settings_main frame in
-            # the main column, producing a SECOND identical copy of the Settings tab
-            # controls. Now routes to the single Settings tab so there is exactly one
-            # settings surface. _build_settings_tab is the sole owner of the controls.
-            self._show_view("generate")  # ensure the tabview host (self.top) is visible
-            self.tabview.set("Settings")
+            # Settings now lives in the dedicated main-column _settings_main view,
+            # opened from the sidebar. The top tabview no longer has a Settings tab.
+            self._show_view("settings")
         except Exception as e:
             logging.error("Focus settings error: %s", e)
             self._set_status(f"Error: {str(e)[:30]}")
@@ -1233,10 +1263,12 @@ class ComfyUIApp:
                         getattr(self, f).grid_remove()
             else:
                 if name == "settings":
-                    # PRESERVED_LEGACY: settings now live in the Settings tab only.
-                    # Route through the tabview instead of a duplicate main-column frame.
-                    self._show_view("generate")
-                    self.tabview.set("Settings")
+                    self.top.grid_remove()
+                    target = "_settings_main"
+                    if not (hasattr(self, target) and getattr(self, target).winfo_exists()):
+                        self._build_settings_in_main()
+                    if hasattr(self, target) and getattr(self, target).winfo_exists():
+                        getattr(self, target).grid()
                     return
                 self.top.grid_remove()
                 target = "_gallery_main"
@@ -1375,7 +1407,8 @@ class ComfyUIApp:
         self._labeled(parent, r, "Enable Tooltips", "Tooltips",
                       ctk.CTkSwitch(parent, text="Show Hover Help", variable=self.tooltips_enabled,
                                     onvalue="1", offvalue="0", command=self._on_tooltips_toggle,
-                                    text_color=TEXT, hover_color=BRAND_HOVER, fg_color=BRAND, progress_color=BRAND)); r += 2
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND)); r += 2
         self._labeled(parent, r, "GPU Optimization", "GPU Mode",
                       ctk.CTkOptionMenu(parent, values=["Default", "Low VRAM (--lowvram)", "Medium VRAM (--medvram)", "High VRAM (--highvram)", "CPU Mode (--cpu)"],
                                         variable=self.gpu_mode_str,
@@ -1471,7 +1504,6 @@ class ComfyUIApp:
         self.tabview.add("Text to Video")
         self.tabview.add("Video to Video")
         self.tabview.add("Video Refine & Upscale")
-        self.tabview.add("Settings")
         self.tabview.add("Debug")
         self.tabview.set("Text to Image")
 
@@ -1482,13 +1514,12 @@ class ComfyUIApp:
             "Text to Video": self._build_video_tab,
             "Video to Video": self._build_video_v2v_tab,
             "Video Refine & Upscale": self._build_video_refine_tab,
-            "Settings": self._build_settings_tab,
             "Debug": self._build_debug_tab,
         }
         self._tab_built = {"Text to Image": False, "Image to Image": False,
                            "Upscale": False, "Text to Video": False,
                            "Video to Video": False, "Video Refine & Upscale": False,
-                           "Settings": False, "Debug": False}
+                           "Debug": False}
 
         # Build txt2img tab immediately
         self._on_tab()
@@ -1501,7 +1532,7 @@ class ComfyUIApp:
         self.header = ctk.CTkLabel(self.top, text="", height=56)
         self.header.grid(row=2, column=0, columnspan=1, padx=0, pady=(2, 0), sticky="nsew")
 
-    def _labeled(self, parent, row, label, key, widget):
+    def _labeled(self, parent, row, label, key, widget, link=True):
         """Create a labeled control at the given row in parent grid.
 
         Places the label at `row` and the control at `row+1`, then returns the
@@ -1509,12 +1540,28 @@ class ComfyUIApp:
         advanced the row counter by only 1 after each call, which made every
         control overlap the next label -- collapsing the whole center panel
         into an unreadable stack (the 'middle is crunched together' bug).
+
+        `key` is interpreted per the `link` flag:
+          link=True  (default, image tabs) -- `key` is a TOOLTIPS dict key and
+                     the registered ("Title", "Body") pair is shown.
+          link=False (video tabs)          -- `key` is literal tooltip body
+                     text used verbatim, with no dictionary lookup.
+        PRESERVED_LEGACY: the 14 video-tab call sites already passed
+        `link=False`, but the parameter did not exist, so every one raised
+        TypeError: _labeled() got an unexpected keyword argument 'link' and
+        aborted the Text-to-Video and Video-to-Video builders. Accepting the
+        flag restores those controls *and* their tooltips, which were
+        previously dropped because long literal strings never match a
+        TOOLTIPS key.
         """
         ctk.CTkLabel(parent, text=label, font=ctk.CTkFont(size=10, weight="bold"),
                      text_color=TEXT).grid(row=row, column=0, padx=12, pady=(3, 0), sticky="w")
         widget.grid(row=row + 1, column=0, padx=12, pady=(0, 3), sticky="ew")
-        if key in TOOLTIPS:
-            ToolTip(widget, *TOOLTIPS[key])
+        if link:
+            if key in TOOLTIPS:
+                ToolTip(widget, *TOOLTIPS[key])
+        elif key:
+            ToolTip(widget, key)
         return row + 2
 
     # ------------------------------------------------------------------
@@ -1903,7 +1950,7 @@ class ComfyUIApp:
                                      dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                      dropdown_hover_color=DROPDOWN_HOVER, width=120)
         dur_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="w")
-        ToolTip(dur_menu, "Clip length. 17 frames/block @ 24fps: 3s~73 frames, 5s~124, 9s~217, 14s~337. Longer = slower on 8GB.")
+        ToolTip(dur_menu, "Clip length. Frames snap to the 17k+5 grid @ 24fps: 3s=73 frames, 5s=124, 9s=226, 14s=345. Longer = slower on 8GB.")
 
         # --- Motion & Options (research: camera presets, prompt enhance, loop, batch) ---
         self.video_camera_var = ctk.StringVar(value="Static")
@@ -2073,8 +2120,11 @@ class ComfyUIApp:
         self.vgen = ctk.CTkButton(sf, text="Generate Video  (Ctrl+E)", width=200, font=self.FONT_NORMAL_BOLD,
                                 fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                                 command=lambda: self._start_video_gen("t2v"))
-        vgen.grid(row=20, column=0, padx=10, pady=(8, 4), sticky="w")
-        ToolTip(vgen, "Generate video with MiniMax H3 locally. Saves MP4 to Pictures/ComfyUI_Generated.")
+        # The button is stored on self (used by _start_video_gen/_reset_video_buttons);
+        # the bare local name `vgen` was left over from an earlier refactor and
+        # raised NameError, aborting the tab right before the button appeared.
+        self.vgen.grid(row=20, column=0, padx=10, pady=(8, 4), sticky="w")
+        ToolTip(self.vgen, "Generate video with MiniMax H3 locally. Saves MP4 to Pictures/ComfyUI_Generated.")
 
     def _video_pick_i2v_image(self):
         from tkinter import filedialog
@@ -2266,7 +2316,7 @@ class ComfyUIApp:
                                      dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                      dropdown_hover_color=DROPDOWN_HOVER, width=120)
         dur_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="w")
-        ToolTip(dur_menu, "Clip length (17 frames/block @ 24fps).")
+        ToolTip(dur_menu, "Clip length. Frames snap to the 17k+5 grid @ 24fps (3s=73, 5s=124, 9s=226, 14s=345).")
 
         # Aspect ratio (research parity)
         self.v2v_ar_var = ctk.StringVar(value="16:9 Widescreen")
@@ -2388,11 +2438,15 @@ class ComfyUIApp:
         bs_switch.grid(row=15, column=0, padx=10, pady=(2, 6), sticky="w")
         ToolTip(bs_switch, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM.")
 
-        self.vgen = ctk.CTkButton(sf, text="Generate Video to Video  (Ctrl+E)", width=240, font=self.FONT_NORMAL_BOLD,
+        self.v2vgen = ctk.CTkButton(sf, text="Generate Video to Video  (Ctrl+E)", width=240, font=self.FONT_NORMAL_BOLD,
                                 fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                                 command=lambda: self._start_video_gen("v2v"))
-        vgen.grid(row=16, column=0, padx=10, pady=(8, 4), sticky="w")
-        ToolTip(vgen, "Generate Video-to-Video from your references (photo or video). Saves MP4 to Pictures/ComfyUI_Generated.")
+        # Stored under its own name: this tab previously also assigned to
+        # self.vgen, silently overwriting the Text-to-Video button reference
+        # whenever the V2V tab was built, so _reset_video_buttons re-labelled
+        # the wrong widget. The bare local `vgen` here raised NameError too.
+        self.v2vgen.grid(row=16, column=0, padx=10, pady=(8, 4), sticky="w")
+        ToolTip(self.v2vgen, "Generate Video-to-Video from your references (photo or video). Saves MP4 to Pictures/ComfyUI_Generated.")
 
     def _v2v_clear_refs(self):
         self.v2v_refs = []
@@ -2568,6 +2622,7 @@ class ComfyUIApp:
                 self.last_prompt_id = r.json().get("prompt_id")
                 self._gen_mode = "video"
                 self._poll_attempts = 0
+                self._poll_handoff = True
                 self.root.after(200, self._poll_history)
         self._set_status("Queued %d H3 V2V job(s)..." % max(1, batch))
         self._generate_lock = False
@@ -2618,8 +2673,8 @@ class ComfyUIApp:
         self.rgen = ctk.CTkButton(sf, text="Refine & Upscale  (Ctrl+E)", width=240, font=self.FONT_NORMAL_BOLD,
                                 fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                                 command=lambda: self._start_video_gen("refine"))
-        rgen.grid(row=4, column=0, padx=10, pady=(8, 4), sticky="w")
-        ToolTip(rgen, "ffmpeg lanczos upscale of the selected MP4. Output lands in Pictures/ComfyUI_Generated.")
+        self.rgen.grid(row=4, column=0, padx=10, pady=(8, 4), sticky="w")
+        ToolTip(self.rgen, "ffmpeg lanczos upscale of the selected MP4. Output lands in Pictures/ComfyUI_Generated.")
 
     def _refine_pick_src(self):
         from tkinter import filedialog
@@ -2666,13 +2721,32 @@ class ComfyUIApp:
                "-c:v", "libx264", "-preset", "medium", "-crf", "18",
                "-c:a", "copy", out]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=600,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
             self._set_status("Upscaled -> " + os.path.basename(out))
             return {"_local_file": out}
         except Exception as e:
             self._set_status("Upscale failed: %s" % str(e)[:60])
             logging.error("ffmpeg upscale error: %s", e)
             return None
+    def _video_button_for(self, mode):
+        """Return the Generate button widget that belongs to `mode`.
+
+        Text-to-Video, Video-to-Video and Refine each own a distinct button
+        (self.vgen / self.v2vgen / self.rgen). They previously shared the
+        self.vgen attribute, so building the V2V tab clobbered the T2V
+        reference and the Cancel/reset logic drove whichever button happened
+        to be assigned last. Returns None when the tab has not been built.
+        """
+        name = {"t2v": "vgen", "v2v": "v2vgen", "refine": "rgen"}.get(mode, "vgen")
+        btn = getattr(self, name, None)
+        try:
+            if btn is not None and btn.winfo_exists():
+                return btn
+        except Exception:
+            pass
+        return None
+
     def _start_video_gen(self, mode="t2v"):
         """Build + queue a MiniMax H3 video workflow (API format, proven valid).
         mode: 't2v' (Text to Video tab), 'v2v' (Video to Video tab),
@@ -2681,14 +2755,14 @@ class ComfyUIApp:
         import time, random
         if getattr(self, '_generate_lock', False):
             # If the button is already "Cancel", treat a click as cancel
-            btn = self.vgen if mode in ("t2v", "v2v") else self.rgen
+            btn = self._video_button_for(mode)
             if btn and str(btn.cget("text")).startswith("Cancel"):
                 self._cancel_generate()
                 return
             self._set_status("Video gen locked")
             return
         # Switch the active button to Cancel
-        btn = self.vgen if mode in ("t2v", "v2v") else self.rgen
+        btn = self._video_button_for(mode)
         if btn:
             try:
                 btn.configure(text="Cancel", fg_color="#CC3333", hover_color="#AA2222",
@@ -2703,7 +2777,10 @@ class ComfyUIApp:
         self._last_generate = time.time()
         self._generate_lock = True
         self._gen_start_time = time.time()
-        self._gen_start_time = time.time()
+        # Cleared here and set only when a job is successfully handed off to
+        # _poll_history, so the finally block can tell "queued, poller owns the
+        # buttons" from "failed, restore the buttons now".
+        self._poll_handoff = False
         try:
             if mode == "t2v":
                 self._set_status("Building H3 video workflow...")
@@ -2753,6 +2830,7 @@ class ComfyUIApp:
                         self.last_prompt_id = r.json().get("prompt_id")
                         self._gen_mode = "video"
                         self._poll_attempts = 0
+                        self._poll_handoff = True
                         self.root.after(200, self._poll_history)
                 self._set_status("Queued %d H3 video job(s) (%dx%d, %ds)..." % (max(1, batch), w, h, dur))
                 return
@@ -2785,30 +2863,80 @@ class ComfyUIApp:
             self.last_prompt_id = r.json().get("prompt_id")
             self._gen_mode = "video"
             self._poll_attempts = 0
+            self._poll_handoff = True
             self.root.after(200, self._poll_history)
         except Exception as e:
             logging.error("Video gen error: %s", e)
             self._set_status("Video gen error: %s" % str(e)[:40])
         finally:
             self._generate_lock = False
-            # Release VRAM after image gen (mutual exclusion with video gen)
+            # B5: release VRAM after every video gen (mutual exclusion with
+            # image gen). This single call replaces three identical duplicated
+            # /free POSTs that accumulated here across earlier patches -- each
+            # had a 5s timeout, so an unreachable backend stalled the UI for up
+            # to 15s on every generation instead of 5s.
             try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+                requests.post(COMFYUI_URL + "/free",
+                              json={"unload_models": True, "free_memory": True},
+                              timeout=5)
             except Exception:
                 pass
-            # Release VRAM after image gen (mutual exclusion with video gen)
+            # Restore the video buttons on EVERY exit path. Without this an
+            # early return (queue failure, unknown mode, build failure) left
+            # the tab's button reading "Cancel" even though nothing was
+            # running, and clicking it tried to cancel a non-existent job.
             try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
-            except Exception:
-                pass
-            # B5 FIX: release VRAM after every video gen (mutual exclusion with image gen)
-            try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+                if not self._poll_pending():
+                    self._reset_video_buttons()
             except Exception:
                 pass
 
+    def _poll_pending(self):
+        """True when this invocation handed a queued job to _poll_history.
+
+        Used to decide whether the video buttons may be reset immediately.
+        A successful queue hands off to _poll_history, which owns the button
+        state until the job finishes; a failed queue has no poller and must
+        restore the buttons itself. Deliberately a per-invocation flag rather
+        than an inspection of last_prompt_id, which survives from previous
+        runs and would wrongly suppress the reset after a failed queue.
+        """
+        return bool(getattr(self, "_poll_handoff", False))
+
+    def _has_tab(self, name):
+        """True if `name` is currently a tab in self.tabview.
+
+        Several builders are retained for legacy/tab surfaces that are no
+        longer added to the tabview (Gallery and Settings now live in the
+        main column). CTkTabview.tab(name) raises ValueError for an unknown
+        name, so every such builder must check first. Prefers the documented
+        public API and falls back to the private _name_list only if needed,
+        so a CustomTkinter upgrade cannot turn this into a hard crash.
+        """
+        try:
+            tv = getattr(self, "tabview", None)
+            if tv is None:
+                return False
+            names = getattr(tv, "_name_list", None)
+            if names is not None:
+                return name in names
+            tv.tab(name)
+            return True
+        except Exception:
+            return False
+
     def _build_gallery_tab(self):
-        """Build the Gallery tab - thumbnail grid of generated images."""
+        """Build the Gallery tab - thumbnail grid of generated images.
+
+        PRESERVED_LEGACY: the Gallery moved to the sidebar-driven main-column
+        view (_build_gallery_in_main). This tab builder is retained so the
+        legacy surface still works if a "Gallery" tab is ever re-added to the
+        tabview, but calling it while no such tab exists raised
+        ValueError: CTkTabview has no tab named 'Gallery'. Guard and no-op.
+        """
+        if not self._has_tab("Gallery"):
+            logging.debug("_build_gallery_tab skipped — no 'Gallery' tab in tabview")
+            return
         t = self.tabview.tab("Gallery")
         t.grid_columnconfigure(0, weight=1)
         t.grid_rowconfigure(0, weight=1)
@@ -2838,7 +2966,18 @@ class ComfyUIApp:
         self._refresh_gallery()
 
     def _refresh_gallery(self):
-        """Populate gallery with thumbnails from OUTPUT_DIR."""
+        """Populate gallery with thumbnails from OUTPUT_DIR.
+
+        PRESERVED_LEGACY: this refreshes the legacy Gallery *tab* surface,
+        whose _gallery_frame only exists once _build_gallery_tab has run.
+        Post-generation code (_poll_history) and _delete_gallery_file call this
+        unconditionally, which raised AttributeError: no attribute
+        '_gallery_frame' and aborted the post-save path. Bail out cleanly when
+        the legacy surface was never built; _refresh_gallery_main handles the
+        active main-column gallery.
+        """
+        if not hasattr(self, "_gallery_frame") or not self._gallery_frame.winfo_exists():
+            return
         for widget in self._gallery_frame.winfo_children():
             widget.destroy()
         try:
@@ -2880,7 +3019,17 @@ class ComfyUIApp:
             self._set_status("Gallery error: %s" % e)
 
     def _build_settings_tab(self):
-        """Build the Settings tab - app configuration."""
+        """Build the Settings tab - app configuration.
+
+        PRESERVED_LEGACY: Settings moved to the sidebar-driven main-column view
+        (_build_settings_in_main). This builder is kept intact so the tab
+        surface still renders if a "Settings" tab is re-added, but invoking it
+        with no such tab raised ValueError: CTkTabview has no tab named
+        'Settings'. Guard and no-op.
+        """
+        if not self._has_tab("Settings"):
+            logging.debug("_build_settings_tab skipped — no 'Settings' tab in tabview")
+            return
         t = self.tabview.tab("Settings")
         t.grid_columnconfigure(0, weight=1)
         t.grid_rowconfigure(0, weight=1)
@@ -3046,7 +3195,8 @@ class ComfyUIApp:
             try:
                 import subprocess
                 r2 = subprocess.run(["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free",
-                                     "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10)
+                                     "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10,
+                                     creationflags=subprocess.CREATE_NO_WINDOW)
                 checks.append(("GPU VRAM", r2.returncode == 0, r2.stdout.strip().replace("\n"," | ") if r2.returncode==0 else "nvidia-smi unavailable"))
             except Exception as e:
                 checks.append(("GPU VRAM", False, str(e)[:80]))
@@ -3118,10 +3268,6 @@ class ComfyUIApp:
         except Exception:
             pass
 
-        ctk.CTkButton(sf, text="Generate Diagnostics Report", font=ctk.CTkFont(size=11),
-                      fg_color=BG_CARD_ALT, text_color=TEXT, hover_color=BRAND_HOVER,
-                      command=lambda: diagnostics_button_command(self)).grid(row=r, column=0, padx=10, pady=(10, 0), sticky="w")
-
     def _on_tab(self, name=None):
         import time
         try:
@@ -3153,7 +3299,7 @@ class ComfyUIApp:
                     "Text to Video": "video", "Video to Video": "video",
                     "Video Refine & Upscale": "video",
                     "Video": "video", "video": "video",
-                    "Settings": "settings", "Debug": "debug",
+                    "Debug": "debug",
                 }
                 self.current_tab = tab_map.get(str(name), "txt2img")
                 if name in getattr(self, '_tab_callbacks', {}) and not getattr(self, '_tab_built', {}).get(name, False):
@@ -3588,19 +3734,26 @@ class ComfyUIApp:
         return "%02d:%02d" % (m, s)
 
     def _reset_video_buttons(self):
-        """Restore video gen buttons to their normal Generate state."""
-        try:
-            if hasattr(self, "vgen") and self.vgen.winfo_exists():
-                mode = getattr(self, "_gen_mode", None)
-                label = "Generate Video  (Ctrl+E)" if mode != "v2v" else "Generate Video to Video  (Ctrl+E)"
-                self.vgen.configure(text=label, fg_color=ACCENT2, hover_color=ACCENT2_HOVER,
-                                    command=lambda: self._start_video_gen("t2v" if mode != "v2v" else "v2v"))
-            if hasattr(self, "rgen") and self.rgen.winfo_exists():
-                self.rgen.configure(text="Refine & Upscale  (Ctrl+E)", fg_color=ACCENT2,
-                                    hover_color=ACCENT2_HOVER,
-                                    command=lambda: self._start_video_gen("refine"))
-        except Exception:
-            pass
+        """Restore video gen buttons to their normal Generate state.
+
+        Resets all three video buttons independently. Previously only
+        self.vgen and self.rgen were handled and the V2V button shared the
+        vgen attribute, so after a V2V run the Text-to-Video button could be
+        left showing "Cancel" with no way back to Generate.
+        """
+        for name, label, mode in (
+            ("vgen", "Generate Video  (Ctrl+E)", "t2v"),
+            ("v2vgen", "Generate Video to Video  (Ctrl+E)", "v2v"),
+            ("rgen", "Refine & Upscale  (Ctrl+E)", "refine"),
+        ):
+            try:
+                btn = getattr(self, name, None)
+                if btn is not None and btn.winfo_exists():
+                    btn.configure(text=label, fg_color=ACCENT2,
+                                  hover_color=ACCENT2_HOVER,
+                                  command=lambda m=mode: self._start_video_gen(m))
+            except Exception:
+                pass
 
     def _gallery_context_menu(self, event, fpath, fname):
         """Show right-click menu for gallery thumbnails."""
@@ -3736,6 +3889,14 @@ class ComfyUIApp:
             self._set_status("Polling timed out")
             if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
                 self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal", command=self._start_generate)
+            # Release the generation lock and restore the video buttons too.
+            # Previously only gen_btn was reset here, so a timeout left
+            # _generate_lock stuck True -- every later Generate click hit the
+            # "locked" guard and returned silently, and the video tabs kept
+            # showing "Cancel". The app appeared dead until restart.
+            self._reset_video_buttons()
+            self._generate_lock = False
+            self._gen_start_time = None
             return
         self._poll_attempts += 1
         try:
