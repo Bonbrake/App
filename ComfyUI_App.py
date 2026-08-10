@@ -4867,8 +4867,10 @@ class ComfyUIApp:
         }
         self.history.append(entry)
         try:
-            with open(HISTORY_FILE, "w") as fh:
+            tmp_hist = HISTORY_FILE + ".tmp"
+            with open(tmp_hist, "w", encoding="utf-8") as fh:
                 json.dump(self.history, fh, indent=2)
+            os.replace(tmp_hist, HISTORY_FILE)
         except Exception as e:
             self._set_status("History save error: %s" % str(e)[:20])
 
