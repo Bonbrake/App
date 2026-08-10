@@ -117,6 +117,12 @@ TOOLTIPS = {
     "Format": ("Output Format", "Select PNG or Power-of-Two TGA (for game engine textures).")
 }
 
+def resolve(path):
+    """Expand ~, environment variables, and normalize separators to the OS-native form."""
+    if not path:
+        return ""
+    return os.path.normpath(os.path.expanduser(os.path.expandvars(str(path))))
+
 class ConfigManager:
     """Manages persistent application settings in config.json."""
     def __init__(self, config_path=CONFIG_FILE):
