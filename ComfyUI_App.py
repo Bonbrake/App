@@ -5428,16 +5428,24 @@ class ComfyUIApp:
 
 
 # ------------------------------------------------------------------
+_in_crash_hook = False
 def _crash_hook(exc_type, exc_value, exc_tb):
-    tb = traceback.format_exception(exc_type, exc_value, exc_tb)
+    global _in_crash_hook
+    if _in_crash_hook:
+        return
+    _in_crash_hook = True
     try:
-        with open(os.path.join(LOG_DIR, "ComfyUI_crash.txt"), "w") as fh:
-            fh.write("CRASH\n")
-            fh.write("\n".join(tb))
-            fh.write("\nUnhandled crash: %s" % exc_value)
-    except Exception:
-        pass
-    logging.error("Unhandled crash: %s" % exc_value)
+        tb = traceback.format_exception(exc_type, exc_value, exc_tb)
+        try:
+            with open(os.path.join(LOG_DIR, "ComfyUI_crash.txt"), "w") as fh:
+                fh.write("CRASH\n")
+                fh.write("\n".join(tb))
+                fh.write("\nUnhandled crash: %s" % exc_value)
+        except Exception:
+            pass
+        logging.error("Unhandled crash: %s" % exc_value)
+    finally:
+        _in_crash_hook = False
 
 
 def main():
