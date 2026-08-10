@@ -4756,18 +4756,20 @@ class ComfyUIApp:
             self._poll_started_at = None  # QOL: track first running-poll timestamp for ETA
 
     def _display_preview(self, img):
-        disp = img.copy()
-        disp.thumbnail((360, 360))
-        tkimg = ctk.CTkImage(light_image=disp, dark_image=disp, size=disp.size)
-        self.preview_label.configure(image=tkimg, text="")
-        self.preview_label.image = tkimg
-        # also update the large preview window in the Generate view
         try:
-            big = img.copy()
-            big.thumbnail((320, 360))
-            bimg = ctk.CTkImage(light_image=big, dark_image=big, size=big.size)
-            self.preview_big.configure(image=bimg, text="")
-            self.preview_big.image = bimg
+            disp = img.copy()
+            disp.thumbnail((360, 360))
+            tkimg = ctk.CTkImage(light_image=disp, dark_image=disp, size=disp.size)
+            if hasattr(self, "preview_label") and self.preview_label and getattr(self.preview_label, "winfo_exists", lambda: True)():
+                self.preview_label.configure(image=tkimg, text="")
+                self.preview_label.image = tkimg
+            # also update the large preview window in the Generate view
+            if hasattr(self, "preview_big") and self.preview_big and getattr(self.preview_big, "winfo_exists", lambda: True)():
+                big = img.copy()
+                big.thumbnail((320, 360))
+                bimg = ctk.CTkImage(light_image=big, dark_image=big, size=big.size)
+                self.preview_big.configure(image=bimg, text="")
+                self.preview_big.image = bimg
         except Exception:
             pass
 
