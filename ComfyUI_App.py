@@ -4254,7 +4254,11 @@ class ComfyUIApp:
 
     def _fmt_elapsed(self, seconds):
         """Format elapsed seconds as [MM:SS] or [H:MM:SS]."""
-        s = int(seconds)
+        try:
+            import math
+            s = max(0, int(seconds)) if seconds is not None and not math.isnan(float(seconds)) else 0
+        except Exception:
+            s = 0
         h, m = divmod(s, 3600)
         m, s = divmod(m, 60)
         if h:

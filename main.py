@@ -2759,6 +2759,19 @@ class ComfyUIApp:
             except Exception as e:
                 self._set_status("Image load failed: %s" % str(e)[:30])
 
+    def _fmt_elapsed(self, seconds):
+        """Format elapsed seconds as [MM:SS] or [H:MM:SS]."""
+        try:
+            import math
+            s = max(0, int(seconds)) if seconds is not None and not math.isnan(float(seconds)) else 0
+        except Exception:
+            s = 0
+        h, m = divmod(s, 3600)
+        m, s = divmod(m, 60)
+        if h:
+            return "%d:%02d:%02d" % (h, m, s)
+        return "%02d:%02d" % (m, s)
+
     def _pick_upscale(self):
         path = filedialog.askopenfilename(
             title="Select Image to Upscale",
