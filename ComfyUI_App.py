@@ -67,7 +67,8 @@ import tkinter.font as tkfont
 import requests
 from config import ConfigManager
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageTk, ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
 except Exception:
     Image = None
     ImageTk = None
