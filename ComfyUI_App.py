@@ -4361,9 +4361,15 @@ class ComfyUIApp:
                          text_color="#FFE0E0" if error else TEXT_MUTED,
                          wraplength=300, justify="left").pack(padx=14, pady=(0, 10))
             toast.after(4000, toast.destroy)
-            self._toasts = getattr(self, "_toasts", []) + [toast]
-            if len(self._toasts) > 5:
-                self._toasts.pop(0).destroy()
+            toasts = [t for t in getattr(self, "_toasts", []) if hasattr(t, "winfo_exists") and t.winfo_exists()]
+            toasts.append(toast)
+            if len(toasts) > 5:
+                oldest = toasts.pop(0)
+                try:
+                    oldest.destroy()
+                except Exception:
+                    pass
+            self._toasts = toasts
         except Exception:
             pass
 
