@@ -5325,6 +5325,8 @@ class ComfyUIApp:
 
     def _stage_input(self, path):
         """Video frame staged - generate on Image to Image"""
+        if isinstance(path, str):
+            path = path.strip('"\'').strip()
         ext = os.path.splitext(path)[1].lower()
         video_exts = [".mp4", ".mov", ".avi", ".mkv", ".webm"]
         if ext in video_exts:
@@ -5358,6 +5360,8 @@ class ComfyUIApp:
             title="Select Image to Upscale",
             filetypes=[("Image", "*.png *.jpg *.jpeg *.webp *.bmp"), ("All Files", "*.*")])
         if path:
+            if isinstance(path, str):
+                path = path.strip('"\'').strip()
             try:
                 img = Image.open(path).convert("RGB")
                 self.input_image_path = path
@@ -5367,11 +5371,26 @@ class ComfyUIApp:
             except Exception as e:
                 self._set_status("Image load failed: %s" % str(e)[:30])
 
+    def _refresh_app_state(self):
+        """QoL: Refresh model checkpoints, reload gallery, and clear status."""
+        try:
+            self._scan_available_checkpoints()
+            self._reload_recent_preview()
+            self._set_status("App state refreshed successfully")
+            self._show_toast("Refreshed", "Model checkpoints and gallery reloaded")
+        except Exception as e:
+            self._set_status("Refresh failed: %s" % str(e)[:30])
+
     def _show_thumb(self, label, img):
         img.thumbnail((200, 150))
-        tkimg = ImageTk.PhotoImage(img)
-        label.configure(image=tkimg, text="")
-        label.image = tkimg
+        try:
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
+            label.configure(image=ctk_img, text="")
+            label.image = ctk_img
+        except Exception:
+            tkimg = ImageTk.PhotoImage(img)
+            label.configure(image=tkimg, text="")
+            label.image = tkimg
 
 
     def _handle_app_shutdown(self):

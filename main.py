@@ -2774,9 +2774,14 @@ class ComfyUIApp:
 
     def _show_thumb(self, label, img):
         img.thumbnail((200, 150))
-        tkimg = ImageTk.PhotoImage(img)
-        label.configure(image=tkimg, text="")
-        label.image = tkimg
+        try:
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
+            label.configure(image=ctk_img, text="")
+            label.image = ctk_img
+        except Exception:
+            tkimg = ImageTk.PhotoImage(img)
+            label.configure(image=tkimg, text="")
+            label.image = tkimg
 
 
     def _handle_app_shutdown(self):
