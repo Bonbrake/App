@@ -5081,8 +5081,8 @@ class ComfyUIApp:
             mode = self.current_tab
             m = self.vars.get(mode, self.vars["txt2img"])
             if "width" in m and "height" in m:
-                w_val = m["width"].get()
-                h_val = m["height"].get()
+                w_val = m["width"].get() or "1024"
+                h_val = m["height"].get() or "1024"
                 m["width"].set(h_val)
                 m["height"].set(w_val)
                 self._set_status(f"Swapped dimensions: {h_val}x{w_val}")
