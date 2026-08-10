@@ -145,8 +145,8 @@ class ConfigManager:
                 self.settings.update(data)
                 global OUTPUT_DIR
                 if "output_dir" in data and data["output_dir"]:
-                    # PRESERVED_LEGACY: Expand ~ and env vars, normalize path safely
-                    out_path = os.path.normpath(os.path.expanduser(os.path.expandvars(str(data["output_dir"]))))
+                    # PRESERVED_LEGACY: Expand ~, env vars, strip whitespace, normalize path safely
+                    out_path = os.path.normpath(os.path.expanduser(os.path.expandvars(str(data["output_dir"]).strip())))
                     self.settings["output_dir"] = out_path
                     OUTPUT_DIR = out_path
             except Exception as e:

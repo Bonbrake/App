@@ -98,10 +98,10 @@ TOOLTIPS = {
 }
 
 def resolve(path):
-    """Expand ~, environment variables, and normalize separators to the OS-native form."""
+    """Expand ~, environment variables, strip whitespace, and normalize separators to the OS-native form."""
     if not path:
         return ""
-    return os.path.normpath(os.path.expanduser(os.path.expandvars(str(path))))
+    return os.path.normpath(os.path.expanduser(os.path.expandvars(str(path).strip())))
 
 
 class ConfigManager:
@@ -125,7 +125,7 @@ class ConfigManager:
                     data = json.load(f)
                 self.settings.update(data)
                 global OUTPUT_DIR
-                if "output_dir" in data:
+                if "output_dir" in data and data["output_dir"]:
                     OUTPUT_DIR = resolve(data["output_dir"])
                     self.settings["output_dir"] = OUTPUT_DIR
             except Exception as e:
