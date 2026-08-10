@@ -138,8 +138,11 @@ class ConfigManager:
                     data = json.load(f)
                 self.settings.update(data)
                 global OUTPUT_DIR
-                if "output_dir" in data:
-                    OUTPUT_DIR = data["output_dir"]
+                if "output_dir" in data and data["output_dir"]:
+                    # PRESERVED_LEGACY: Expand ~ and env vars, normalize path safely
+                    out_path = os.path.normpath(os.path.expanduser(os.path.expandvars(str(data["output_dir"]))))
+                    self.settings["output_dir"] = out_path
+                    OUTPUT_DIR = out_path
             except Exception as e:
                 logging.error("Failed to load config.json: %s", e)
 

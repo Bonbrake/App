@@ -1065,6 +1065,20 @@ class ComfyUIApp:
         try:
             factor = float(v.replace("%", "")) / 100.0
             self._current_scaling_val = v
+            # PRESERVED_LEGACY: Prune destroyed widgets from ScalingTracker to prevent TclError crash on UI scaling change
+            try:
+                from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+                for win in list(ScalingTracker.window_widgets_dict.keys()):
+                    valid = []
+                    for w in ScalingTracker.window_widgets_dict.get(win, []):
+                        try:
+                            if hasattr(w, "winfo_exists") and w.winfo_exists():
+                                valid.append(w)
+                        except Exception:
+                            pass
+                    ScalingTracker.window_widgets_dict[win] = valid
+            except Exception as e:
+                logging.debug("ScalingTracker prune error: %s", e)
             ctk.set_widget_scaling(factor)
             self._set_status("UI Scaled to %s" % v)
         except Exception as e:
@@ -2763,6 +2777,21 @@ class ComfyUIApp:
         tkimg = ImageTk.PhotoImage(img)
         label.configure(image=tkimg, text="")
         label.image = tkimg
+
+
+    def _handle_app_shutdown(self):
+        """Clean application shutdown handler for window close event."""
+        self._running = False
+        try:
+            if hasattr(self, "backend_manager") and self.backend_manager:
+                self.backend_manager.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "root") and self.root:
+                self.root.destroy()
+        except Exception:
+            pass
 
 
 # ------------------------------------------------------------------

@@ -11,9 +11,23 @@ All checks are semantic (identifier present), not source-text matching, so
 formatting differences between .py and frozen bytecode don't produce false
 negatives.
 """
+import os
+import sys
 import marshal
 import zlib
-import sys
+import types
+import subprocess
+
+# Auto-reexec under Python 3.11 if current interpreter lacks PyInstaller
+try:
+    import PyInstaller
+except ImportError:
+    if os.name == "nt" and not os.environ.get("_QA_REEXEC"):
+        py311 = os.path.normpath(os.path.expanduser(r"~/AppData/Local/Programs/Python/Python311/python.exe"))
+        cmd = [py311] + sys.argv if os.path.exists(py311) else ["py", "-3.11"] + sys.argv
+        env = dict(os.environ, _QA_REEXEC="1")
+        res = subprocess.run(cmd, env=env)
+        sys.exit(res.returncode)
 
 from PyInstaller.utils.cliutils.archive_viewer import CArchiveReader
 
@@ -39,10 +53,44 @@ def collect_all(c):
                 for e in k:
                     if isinstance(e, str):
                         consts.add(e)
+                    elif hasattr(e, "co_consts"):
+                        walk(e)
             elif hasattr(k, "co_consts"):
                 walk(k)
 
     walk(c)
+    # Second pass: some code objects (e.g. nested function bodies inside tuple
+    # consts) are only reachable via types.CodeType, so exhaustively recurse
+    # every collected const through a CodeType-aware walker.
+    def rec(obj):
+        if isinstance(obj, str):
+            consts.add(obj)
+        elif isinstance(obj, (tuple, list, set, frozenset)):
+            for e in obj:
+                rec(e)
+        elif isinstance(obj, types.CodeType):
+            for cc in obj.co_consts:
+                rec(cc)
+        elif hasattr(obj, "co_consts"):
+            for cc in obj.co_consts:
+                rec(cc)
+    for c0 in list(consts):
+        pass
+    # re-walk using rec over the already-collected code hierarchy
+    def walk2(co):
+        for k in getattr(co, "co_consts", ()):
+            rec(k)
+        for n in getattr(co, "co_names", ()):
+            names.add(n)
+        # descend into sub-code objects found in consts
+        for k in getattr(co, "co_consts", ()):
+            if hasattr(k, "co_consts"):
+                walk2(k)
+            elif isinstance(k, (tuple, list, set, frozenset)):
+                for e in k:
+                    if hasattr(e, "co_consts"):
+                        walk2(e)
+    walk2(c)
     return names, consts
 
 
@@ -68,6 +116,18 @@ checks = [
     ("_gen_start_time cleared on timeout", "_gen_start_time" in names and "_reset_video_buttons" in names),
     # FIX 11: single /free
     ("_poll_handoff flag drives button reset", "_poll_handoff" in names),
+    # FIX 12: dynamic checkpoint scanner wired at init
+    ("_scan_available_checkpoints() called at init", "_scan_available_checkpoints" in names),
+    # FIX 13: stable build stamp from embedded build_info.json
+    ("build_info.json embedded in bundle", "build_info.json" in consts),
+    # FIX 14: F1 shortcut modal
+    ("_show_shortcut_modal (F1) present", "_show_shortcut_modal" in names),
+    # FIX 15: Ctrl+Shift+C copy prompt + Ctrl+Shift+D swap dims
+    ("_copy_prompt bound (Ctrl+Shift+C)", "_copy_prompt" in names),
+    ("_swap_dimensions bound (Ctrl+Shift+D)", "_swap_dimensions" in names),
+    ("shortcut labels present (Ctrl + Shift + C/D)",
+     "Ctrl + Shift + C" in consts and "Ctrl + Shift + D" in consts
+     and "Copy Active Prompt to Clipboard" in consts and "Swap Width / Height" in consts),
 ]
 
 R = [(label, ok) for label, ok in checks]

@@ -36,6 +36,19 @@ H3_PKG = os.path.join(BASE, "ComfyUI_windows_portable", "ComfyUI",
                       "custom_nodes", "ComfyUI-MiniMaxH3")
 sys.path.insert(0, BASE)
 
+import subprocess
+
+# Auto-reexec under Python 3.11 if current interpreter lacks customtkinter
+try:
+    import customtkinter
+except ImportError:
+    if os.name == "nt" and not os.environ.get("_QA_REEXEC"):
+        py311 = os.path.normpath(os.path.expanduser(r"~/AppData/Local/Programs/Python/Python311/python.exe"))
+        cmd = [py311] + sys.argv if os.path.exists(py311) else ["py", "-3.11"] + sys.argv
+        env = dict(os.environ, _QA_REEXEC="1")
+        res = subprocess.run(cmd, env=env)
+        sys.exit(res.returncode)
+
 R = []
 
 
@@ -86,7 +99,8 @@ for view in ("generate", "gallery", "settings"):
 
 for name in ("_refresh_gallery", "_refresh_gallery_main", "_debug_refresh",
              "_on_tab", "_swap_dimensions", "_reset_video_buttons",
-             "_on_tooltips_toggle", "_scan_available_checkpoints"):
+             "_on_tooltips_toggle", "_scan_available_checkpoints",
+             "_copy_prompt", "_restore_config", "_show_shortcut_modal"):
     try:
         getattr(app, name)()
         chk("invoke: %s" % name, True)
