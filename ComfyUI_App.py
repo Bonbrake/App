@@ -3933,6 +3933,8 @@ class ComfyUIApp:
     # ------------------------------------------------------------------
     def _build_workflow(self, mode):
         """Build the ComfyUI workflow dict for the given mode (txt2img/img2img/upscale)."""
+        if not mode or mode not in ("txt2img", "img2img", "upscale"):
+            mode = "txt2img"
         m = self.vars.get(mode, self.vars["txt2img"])
         # Safe numeric parsing: clamp to valid ComfyUI ranges so a typo / empty
         # field can NEVER raise ValueError and leave the Generate button stuck.
