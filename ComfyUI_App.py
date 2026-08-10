@@ -4689,6 +4689,7 @@ class ComfyUIApp:
             # Refresh the main-column gallery grid so the new image appears immediately
             if hasattr(self, "_refresh_gallery_main"):
                 self._refresh_gallery_main()
+            self._show_toast("Generation Complete", f"Saved {fn[:25]}")
         except Exception as e:
             self._set_status("Show image error: %s" % str(e)[:30])
 
@@ -4709,6 +4710,7 @@ class ComfyUIApp:
             with open(out_path, "wb") as fh:
                 fh.write(r.content)
             self._save_history(mode, fn)
+            self._show_toast("Video Complete", f"Saved {fn[:25]}")
             # QOL: auto-copy output path to clipboard when enabled
             if self.qol_copy_path.get() == "1" and self.root and self.root.winfo_exists():
                 try:
