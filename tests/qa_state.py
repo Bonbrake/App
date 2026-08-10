@@ -22,6 +22,19 @@ BASE = os.path.dirname(HERE)
 SRC = os.path.join(BASE, "ComfyUI_App.py")
 sys.path.insert(0, BASE)
 
+import subprocess
+
+# Auto-reexec under Python 3.11 if current interpreter lacks customtkinter
+try:
+    import customtkinter
+except ImportError:
+    if os.name == "nt" and not os.environ.get("_QA_REEXEC"):
+        py311 = os.path.normpath(os.path.expanduser(r"~/AppData/Local/Programs/Python/Python311/python.exe"))
+        cmd = [py311] + sys.argv if os.path.exists(py311) else ["py", "-3.11"] + sys.argv
+        env = dict(os.environ, _QA_REEXEC="1")
+        res = subprocess.run(cmd, env=env)
+        sys.exit(res.returncode)
+
 import tkinter as tk  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("CAT", SRC)

@@ -98,8 +98,10 @@ TOOLTIPS = {
 }
 
 def resolve(path):
-    """Expand ~ and normalize separators to the OS-native form."""
-    return os.path.normpath(os.path.expanduser(path))
+    """Expand ~, environment variables, and normalize separators to the OS-native form."""
+    if not path:
+        return ""
+    return os.path.normpath(os.path.expanduser(os.path.expandvars(str(path))))
 
 
 class ConfigManager:

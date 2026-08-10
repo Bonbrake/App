@@ -9,9 +9,19 @@ the ComfyUI-MiniMaxH3 custom node pack loaded.
 """
 import sys, os, json, time, requests, subprocess, shutil, inspect
 
-sys.path.insert(0, r"C:\ComfyUI-Desktop")
+# Auto-reexec under Python 3.11 if current interpreter lacks PIL
+try:
+    from PIL import Image
+except ImportError:
+    if os.name == "nt" and not os.environ.get("_QA_REEXEC"):
+        py311 = os.path.normpath(os.path.expanduser(r"~/AppData/Local/Programs/Python/Python311/python.exe"))
+        cmd = [py311] + sys.argv if os.path.exists(py311) else ["py", "-3.11"] + sys.argv
+        env = dict(os.environ, _QA_REEXEC="1")
+        res = subprocess.run(cmd, env=env)
+        sys.exit(res.returncode)
+    from PIL import Image
 
-from PIL import Image
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ── Constants mirroring the app ──────────────────────────────────────────
 SERVER = "http://127.0.0.1:8188"
@@ -898,6 +908,47 @@ def test_diag_diagnose_logic():
     except Exception as e:
         chk("Diag: diagnose logic", False, str(e))
 
+def test_no_duplicate_methods():
+    """No method should be defined twice on ComfyUIApp — a duplicate silently
+    shadows the earlier one, which is a trap for future fixes. Regression guard."""
+    import ast as _ast
+    src = inspect.getsource(app.ComfyUIApp)
+    tree = _ast.parse(src)
+    seen = {}
+    dupes = []
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.FunctionDef):
+            seen.setdefault(node.name, []).append(node.lineno)
+    for nm, lines in seen.items():
+        if len(lines) > 1:
+            dupes.append("%s@%s" % (nm, lines))
+    chk("No duplicate method definitions on ComfyUIApp", not dupes,
+        "found: %s" % (", ".join(dupes) if dupes else "none"))
+
+def test_frozen_path_stability():
+    """Frozen onefile builds extract __file__ into a temp _MEI dir PyInstaller
+    DELETES on exit — so config + crash dumps written there vanish on restart.
+    Regression guard: both _get_config_path and the diagnostics base must use
+    sys.executable (stable exe dir) when frozen, never the raw __file__ dir."""
+    import ast as _ast, re as _re
+    src = inspect.getsource(app)
+    # _get_config_path must branch on sys.executable when frozen
+    idx = src.find("def _get_config_path")
+    seg = src[idx:idx+600]   # widen: the sys.executable branch sits past col 400
+    uses_exec = "sys.executable" in seg
+    chk("Frozen: _get_config_path uses sys.executable when frozen", uses_exec,
+        "exec-branch present" if uses_exec else "missing exe branch")
+    # diagnostics base must be computed from sys.executable when frozen (not raw __file__ dir)
+    init_calls = [m.start() for m in _re.finditer(r"init_diagnostics\(", src)]
+    frozen_aware = False
+    for ic in init_calls:
+        call_seg = src[max(0, ic-400):ic+120]   # scan the base-computation above the call too
+        if "sys.executable" in call_seg:
+            frozen_aware = True
+            break
+    chk("Frozen: diagnostics base uses sys.executable (not volatile __file__)", frozen_aware,
+        "exe-branch present" if frozen_aware else "missing exe branch")
+
 # ── Run all tests ────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 70)
@@ -965,6 +1016,8 @@ if __name__ == "__main__":
     test_diag_debug_helpers()
     test_diag_button_wiring()
     test_diag_diagnose_logic()
+    test_no_duplicate_methods()
+    test_frozen_path_stability()
 
     fails = [r for r in R if r[1] == "FAIL"]
     skips = [r for r in R if r[1] == "SKIP"]

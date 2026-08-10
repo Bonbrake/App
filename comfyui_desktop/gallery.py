@@ -4,6 +4,7 @@ Handles ThreadPool thumbnail decoding, PIL image cache lifecycle, and TGA textur
 """
 import os
 import gc
+import math
 import logging
 from PIL import Image, ImageTk
 from concurrent.futures import ThreadPoolExecutor
@@ -52,8 +53,8 @@ def convert_to_game_texture(image_path):
         with Image.open(image_path) as im:
             w, h = im.size
             # Nearest Power-of-Two dimensions
-            pot_w = 2 ** round(os.math.log2(w)) if w > 0 else 512
-            pot_h = 2 ** round(os.math.log2(h)) if h > 0 else 512
+            pot_w = 2 ** round(math.log2(w)) if w > 0 else 512
+            pot_h = 2 ** round(math.log2(h)) if h > 0 else 512
             pot_im = im.resize((pot_w, pot_h), Image.Resampling.LANCZOS)
             tga_path = os.path.splitext(image_path)[0] + ".tga"
             pot_im.save(tga_path, format="TGA")

@@ -45,10 +45,11 @@ class BackendManager:
             "--disable-auto-launch"
         ]
         try:
+            creation_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
             self.process = subprocess.Popen(
                 args, cwd=COMFYUI_DIR,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                creationflags=creation_flags
             )
             self.pid = self.process.pid
             logger.info("Spawned ComfyUI backend process [PID: %d]", self.pid)
@@ -58,6 +59,10 @@ class BackendManager:
                 time.sleep(1)
                 if self.is_server_running():
                     return True, "Server online"
+                # PRESERVED_LEGACY: Return early if subprocess exited prematurely
+                if self.process and self.process.poll() is not None:
+                    code = self.process.poll()
+                    return False, f"Server process exited with code {code}"
             return False, "Server start failed - click Restart Backend"
         except Exception as e:
             logger.error("Failed to launch backend subprocess: %s", e)
