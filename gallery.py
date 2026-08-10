@@ -48,8 +48,9 @@ image_cache = ImageCache()
 def convert_to_game_texture(image_path):
     """Export output image as a Power-of-Two tileable TGA texture for game engines."""
     try:
-        if not os.path.exists(image_path):
+        if not image_path or not os.path.exists(image_path):
             return False
+        image_path = os.path.abspath(image_path)
         with Image.open(image_path) as im:
             w, h = im.size
             # Nearest Power-of-Two dimensions

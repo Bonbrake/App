@@ -773,7 +773,8 @@ class ComfyUIApp:
                 for f in os.listdir(CKPT_DIR):
                     if f.endswith(".safetensors") or f.endswith(".ckpt"):
                         name = os.path.splitext(f)[0]
-                        if name not in MODELS and f not in [m.get("file") for m in MODELS.values()]:
+                        existing_files = [str(m.get("file", "")).lower() for m in MODELS.values()]
+                        if name not in MODELS and f.lower() not in existing_files:
                             MODELS[name] = {
                                 "file": f, "value": f, "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5,
                                 "sampler": "dpmpp_2m", "scheduler": "karras"
