@@ -151,6 +151,12 @@ class ConfigManager:
                     OUTPUT_DIR = out_path
             except Exception as e:
                 logging.error("Failed to load config.json: %s", e)
+                try:
+                    corrupt_bak = self.config_path + ".corrupt"
+                    if not os.path.exists(corrupt_bak) and os.path.exists(self.config_path):
+                        os.replace(self.config_path, corrupt_bak)
+                except Exception:
+                    pass
 
     def save(self):
         try:
