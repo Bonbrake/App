@@ -4670,8 +4670,10 @@ class ComfyUIApp:
             self.current_pil = img
             self._display_preview(img)
             out_path = os.path.join(OUTPUT_DIR, fn)
-            with open(out_path, "wb") as fh:
+            tmp_path = out_path + ".tmp"
+            with open(tmp_path, "wb") as fh:
                 fh.write(r.content)
+            os.replace(tmp_path, out_path)
             self._add_thumb(out_path, mode, only_preview=False)
             self._reload_recent_preview()
             fmt = self.vars.get(mode, {}).get("format")
@@ -4718,8 +4720,10 @@ class ComfyUIApp:
                 self._set_status("Video download failed (%d)" % r.status_code)
                 return
             out_path = os.path.join(OUTPUT_DIR, fn)
-            with open(out_path, "wb") as fh:
+            tmp_path = out_path + ".tmp"
+            with open(tmp_path, "wb") as fh:
                 fh.write(r.content)
+            os.replace(tmp_path, out_path)
             self._save_history(mode, fn)
             self._show_toast("Video Complete", f"Saved {fn[:25]}")
             # QOL: auto-copy output path to clipboard when enabled
