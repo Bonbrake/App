@@ -2496,8 +2496,36 @@ class ComfyUIApp:
             self.header.configure(image=photo)
         except Exception:
             pass
-        if self._running:
-            self.root.after(50, self._animate_gradient)
+    def _show_toast(self, title, message, error=False):
+        """Show a transient toast notification (top-right of window)."""
+        try:
+            import tkinter as tk
+            toast = ctk.CTkToplevel(self.root)
+            toast.overrideredirect(True)
+            toast.attributes("-topmost", True)
+            toast.configure(fg_color="#CC3333" if error else BG_CARD)
+            # Position top-right
+            self.root.update_idletasks()
+            x = self.root.winfo_rootx() + self.root.winfo_width() - 340
+            y = self.root.winfo_rooty() + 8
+            toast.geometry("+%d+%d" % (x, y))
+            ctk.CTkLabel(toast, text=title, font=ctk.CTkFont(size=12, weight="bold"),
+                         text_color="#FFFFFF" if error else TEXT).pack(padx=14, pady=(10, 2))
+            ctk.CTkLabel(toast, text=message, font=ctk.CTkFont(size=10),
+                         text_color="#FFE0E0" if error else TEXT_MUTED,
+                         wraplength=300, justify="left").pack(padx=14, pady=(0, 10))
+            toast.after(4000, toast.destroy)
+            toasts = [t for t in getattr(self, "_toasts", []) if hasattr(t, "winfo_exists") and t.winfo_exists()]
+            toasts.append(toast)
+            if len(toasts) > 5:
+                oldest = toasts.pop(0)
+                try:
+                    oldest.destroy()
+                except Exception:
+                    pass
+            self._toasts = toasts
+        except Exception:
+            pass
 
     def _swap_dimensions(self):
         try:
