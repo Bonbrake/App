@@ -1028,7 +1028,8 @@ class ComfyUIApp:
         root.bind("<F1>", lambda e: self._show_shortcut_modal())
         # QoL: wire previously-dead helpers (complete impls, were never bound).
         root.bind("<Control-Shift-C>", lambda e: self._copy_prompt())
-        root.bind("<Control-Shift-D>", lambda e: self._swap_dimensions())
+        # NOTE: Ctrl+Shift+W swaps dimensions (avoids conflict with Ctrl+Shift+D = Debug)
+        root.bind("<Control-Shift-W>", lambda e: self._swap_dimensions())
         root.bind("<Control-o>", lambda e: _open_file(OUTPUT_DIR))
         root.bind("<Control-O>", lambda e: _open_file(OUTPUT_DIR))
         root.bind("<Control-Shift-V>", lambda e: self._free_vram())
@@ -1384,6 +1385,11 @@ class ComfyUIApp:
                     self._recursive_destroy(self._settings_main)
                 except Exception:
                     pass
+            if hasattr(self, "_debug_main") and self._debug_main:
+                try:
+                    self._recursive_destroy(self._debug_main)
+                except Exception:
+                    pass
 
             self._build_sidebar()
             self._build_main()
@@ -1683,37 +1689,35 @@ class ComfyUIApp:
                      text_color=BRAND).grid(row=r, column=0, padx=10, pady=(10, 2), sticky="w"); r += 2
 
         def _mk_toggle(row, label, help_key, var, cmd):
+            # NOTE: button_hover_color is NOT a valid CTkSwitch parameter — removed to prevent
+            # AttributeError mid-render that left the Settings view half-empty.
             w = ctk.CTkSwitch(parent, text=label, variable=var,
                               onvalue="1", offvalue="0", command=cmd,
-                              text_color=TEXT, button_hover_color=BRAND_HOVER,
-                              fg_color=BRAND, progress_color=BRAND)
+                              text_color=TEXT, fg_color=BRAND, progress_color=BRAND)
+            if not hasattr(w, "_variable"):
+                w._variable = var
             self._labeled(parent, row, "", help_key, w, link=False); return None
 
         self._labeled(parent, r, "Prompt History Recall", "Show a 'Last Prompt' button and a recent-prompts dropdown on the image tabs.",
                       ctk.CTkSwitch(parent, text="Last Prompt + History", variable=self.qol_prompt_history,
                                     onvalue="1", offvalue="0", command=self._on_qol_prompt_history_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Auto-Restart Backend", "If the backend stops, show a toast with a one-click Restart instead of silent failure.",
                       ctk.CTkSwitch(parent, text="Auto-Restart Toast", variable=self.qol_auto_restart,
                                     onvalue="1", offvalue="0", command=self._on_qol_auto_restart_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Restore Session", "Remember the last prompt + seed for each tab and restore them when you reopen the app.",
                       ctk.CTkSwitch(parent, text="Restore Prompt/Seed", variable=self.qol_restore_session,
                                     onvalue="1", offvalue="0", command=self._on_qol_restore_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Live VRAM Readout", "Show a small VRAM % chip in the status bar (does not clobber 'Generating...').",
                       ctk.CTkSwitch(parent, text="VRAM Chip", variable=self.qol_vram_readout,
                                     onvalue="1", offvalue="0", command=self._on_qol_vram_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Copy Output Path", "Copy the generated image/video file path to your clipboard as soon as it finishes.",
                       ctk.CTkSwitch(parent, text="Copy Path", variable=self.qol_copy_path,
                                     onvalue="1", offvalue="0", command=self._on_qol_copy_path_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
 
         # QoL (2026-08-09): user-facing writing-font size control (Small/Medium/Large)
         self._labeled(parent, r, "Text Size (prompts)", "Size of the prompt & negative-prompt text you type. Medium is the readable default.",
