@@ -15,6 +15,51 @@ import datetime
 import logging
 import tkinter as tk
 
+# Module-level alias so both _resolve_comfyui_portable_dir() (which rebinds
+# `os` as `_os` locally) and module-level path constants can use `_os`.
+_os = os
+
+def _safe_mtime(path):
+    """Stat mtime, tolerating files that vanish mid-scan (race during gen/delete).
+    Returns 0.0 if missing so the sort never raises and aborts the gallery refresh."""
+    try:
+        return _os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+def _safe_int(text, default=0, lo=None, hi=None):
+    """Parse an int from arbitrary UI text, clamping to [lo,hi] and never raising.
+
+    Prevents a ValueError crash (and a stuck 'Generating...' button) when the
+    user types non-numeric / empty / out-of-range values into numeric fields.
+    """
+    try:
+        v = int(str(text).strip())
+    except (ValueError, TypeError):
+        try:
+            v = int(round(float(str(text).strip())))
+        except (ValueError, TypeError):
+            return default
+    if lo is not None and v < lo:
+        v = lo
+    if hi is not None and v > hi:
+        v = hi
+    return v
+
+
+def _safe_float(text, default=0.0, lo=None, hi=None):
+    """Parse a float from arbitrary UI text, clamping to [lo,hi] and never raising."""
+    try:
+        v = float(str(text).strip())
+    except (ValueError, TypeError):
+        return default
+    if lo is not None and v < lo:
+        v = lo
+    if hi is not None and v > hi:
+        v = hi
+    return v
+
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import tkinter.font as tkfont
@@ -22,7 +67,8 @@ import tkinter.font as tkfont
 import requests
 from config import ConfigManager
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageTk, ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
 except Exception:
     Image = None
     ImageTk = None
@@ -283,8 +329,18 @@ MAIN_PY = "main.py"
 COMFYUI_URL = "http://127.0.0.1:8188"
 
 def _get_config_path():
-    """Path to app config JSON (window geometry, last model, etc.)."""
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_config.json")
+    """Path to app config JSON (window geometry, last model, etc.).
+
+    In a frozen one-file build, __file__ lives inside the temp _MEIxxxx
+    extraction dir that PyInstaller DELETES on exit — writing there means
+    settings never survive a restart. So when frozen, resolve next to the
+    real executable (stable, user-writable) instead. Additive + safe.
+    """
+    if getattr(sys, "frozen", False):
+        base = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "app_config.json")
 
 
 def _open_file(path):
@@ -378,25 +434,35 @@ MODELS = {
 
 PRESETS = {
     "Photoreal Portrait": {
-        "model": "epiCRealism XL",
-        "prompt": "photorealistic portrait, detailed skin, studio light",
-        "neg": "blurry, lowres",
+    "model": "epiCRealism XL",
+    "prompt": "a striking photorealistic portrait, sharp facial details, natural skin texture, soft studio rim light, shallow depth of field, 85mm lens, captured with a DSLR, 8k, ultra detailed, cinematic color grade",
+    "neg": "blurry, lowres, deformed, extra limbs, bad anatomy, watermark, text, cartoon, painting, oversaturated, plastic skin",
     },
     "Cinematic Wide": {
         "model": "Juggernaut XL",
-        "prompt": "cinematic wide shot, dramatic lighting",
-        "neg": "blurry, deformed",
+        "prompt": "epic cinematic wide establishing shot of a lone figure on a windswept cliff at golden hour, anamorphic lens flare, volumetric atmospheric haze, dramatic chiaroscuro lighting, film still, teal and orange grade, highly detailed environment",
+        "neg": "blurry, deformed, watermark, text, low quality, oversaturated, flat lighting, extra limbs",
     },
     "Anime Character": {
         "model": "Pony Diffusion V6 XL",
-        "prompt": "anime style character, vibrant",
-        "neg": "realistic, photo",
+        "prompt": "anime style illustration of a cheerful magical girl, big expressive eyes, flowing hair with wind motion, vibrant cel-shaded colors, clean lineart, dynamic pose, detailed clothing, sparkle effects, studio anime key visual",
+        "neg": "realistic, photo, 3d render, blurry, lowres, deformed, watermark, text, extra limbs",
     },
     "Game Texture": {
         "model": "Pony Diffusion V6 XL",
         "prompt": "game texture, seamless tileable diffuse map, clean flat shading, hand-painted cell-shaded style, consistent pixel density, UV-friendly, no stretching, neutral lighting, game-ready asset",
         "neg": "realistic, photo, photographic, blurry, lowres, distorted seams, stretching, watermark, text, jpeg artifacts",
         "format": "Game Texture (TGA)",
+    },
+    "Product Shot": {
+        "model": "epiCRealism XL",
+        "prompt": "professional product photography of a luxury perfume bottle on a reflective black surface, three-point studio lighting, soft shadows, crisp reflections, advertising render, 8k, commercial quality, shallow depth of field",
+        "neg": "blurry, lowres, deformed, watermark, text, background clutter, oversaturated, amateur",
+    },
+    "Fantasy Art": {
+        "model": "Juggernaut XL",
+        "prompt": "fantasy concept art of an ancient floating castle above a sea of clouds, god rays, intricate architecture, painterly matte-painting style, rich complementary colors, highly detailed, artstation trending",
+        "neg": "blurry, lowres, deformed, watermark, text, photo, oversaturated, flat",
     },
 }
 
@@ -480,6 +546,15 @@ TOOLTIPS = {
 ctk.set_appearance_mode("system")
 ctk.set_widget_scaling(1.0)
 
+# QoL (2026-08-09): make the frozen app DPI-aware so text/widgets render crisp
+# at the user's real Windows scaling (150% etc.) instead of tiny + blurry.
+# PROCESS_PER_MONITOR_DPI_AWARE = 2. Guarded: harmless if shcore is unavailable.
+try:
+    import ctypes as _ct
+    _ct.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    pass
+
 BG_APP = ("#F1F5F9", "#0F0F12")
 BG_SIDEBAR = ("#E2E8F0", "#14141A")
 BG_CARD = ("#FFFFFF", "#1A1A24")
@@ -503,7 +578,17 @@ class ToolTip:
     """Hover tooltip — robust CTk 6.0-compatible implementation."""
     enabled = True
 
-    def __init__(self, widget, title, description, delay=TOOLTIP_DELAY):
+    def __init__(self, widget, title, description=None, delay=TOOLTIP_DELAY):
+        # Two call conventions exist across this file and BOTH must keep working:
+        #   3-arg: ToolTip(w, *TOOLTIPS["Key"])  -> ("Title", "Body text")
+        #   2-arg: ToolTip(w, "Body text")       -> body only, no bold heading
+        # PRESERVED_LEGACY: the 2-arg form (34 call sites in the video tabs)
+        # previously raised TypeError: missing argument 'description', which
+        # aborted _build_video_tab / _build_video_v2v_tab / _build_video_refine_tab
+        # mid-build and left those tabs half-rendered. Making `description`
+        # optional keeps every existing call site valid without editing them.
+        if description is None:
+            title, description = None, title
         self.widget = widget
         self.title = title
         self.description = description
@@ -580,10 +665,16 @@ class ToolTip:
         tw.wm_overrideredirect(True)
         tw.wm_geometry("+%d+%d" % (x, y))
         tw.configure(fg_color=("#1E1E2E", "#1E1E2E"))
-        ctk.CTkLabel(tw, text=self.title, font=ctk.CTkFont(size=10, weight="bold"),
-                     text_color="#F8FAFC", fg_color="transparent").pack(padx=10, pady=(8, 2), anchor="w")
+        if self.title:
+            ctk.CTkLabel(tw, text=self.title, font=ctk.CTkFont(size=10, weight="bold"),
+                         text_color="#F8FAFC", fg_color="transparent").pack(padx=10, pady=(8, 2), anchor="w")
+            body_pady = (0, 8)
+        else:
+            # 2-arg form: single body string with no bold heading. Balance the
+            # vertical padding so the tooltip doesn't look top-clipped.
+            body_pady = (8, 8)
         ctk.CTkLabel(tw, text=self.description, font=ctk.CTkFont(size=9),
-                     text_color="#94A3B8", wraplength=260, fg_color="transparent").pack(padx=10, pady=(0, 8), anchor="w")
+                     text_color="#94A3B8", wraplength=260, fg_color="transparent").pack(padx=10, pady=body_pady, anchor="w")
         tw.update_idletasks()
 
     def _do_hide(self):
@@ -625,6 +716,9 @@ class ComfyUIApp:
             frame.pack(fill="both", expand=True, padx=16, pady=16)
             
             ctk.CTkLabel(frame, text="Keyboard Shortcuts", font=self.FONT_LOGO_SUB, text_color=TEXT).pack(pady=(12, 16))
+            s_stamp, s_mb = self._build_info()
+            ver_line = ("Build %s · %d MB" % (s_stamp, s_mb)) if getattr(sys, "frozen", False) else "dev build"
+            ctk.CTkLabel(frame, text=ver_line, font=self.FONT_SMALL, text_color=TEXT_MUTED).pack(pady=(0, 8))
             
             shortcuts = [
                 ("Ctrl + E / Ctrl + Enter", "Trigger Image Generation"),
@@ -632,6 +726,8 @@ class ComfyUIApp:
                 ("F5", "Refresh Gallery View"),
                 ("Ctrl + L", "Open Application Log Window"),
                 ("Ctrl + Shift + V", "Purge CUDA Memory Cache"),
+                ("Ctrl + Shift + C", "Copy Active Prompt to Clipboard"),
+                ("Ctrl + Shift + D", "Swap Width / Height"),
                 ("F1", "Show Shortcuts Cheat Sheet")
             ]
             
@@ -668,22 +764,28 @@ class ComfyUIApp:
                 for f in os.listdir(CKPT_DIR):
                     if f.endswith(".safetensors") or f.endswith(".ckpt"):
                         name = os.path.splitext(f)[0]
-                        if name not in MODELS and f not in [m.get("file") for m in MODELS.values()]:
+                        existing_files = [str(m.get("file", "")).lower() for m in MODELS.values()]
+                        if name not in MODELS and f.lower() not in existing_files:
                             MODELS[name] = {
-                                "file": f, "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5,
+                                "file": f, "value": f, "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5,
                                 "sampler": "dpmpp_2m", "scheduler": "karras"
                             }
                             if name not in available:
                                 available.append(name)
-            if hasattr(self, "model_menu"):
-                self.model_menu.configure(values=list(MODELS.keys()))
+            if hasattr(self, "model_menu") and self.model_menu is not None:
+                try:
+                    if hasattr(self.model_menu, "winfo_exists") and self.model_menu.winfo_exists():
+                        self.model_menu.configure(values=list(MODELS.keys()))
+                except Exception:
+                    pass
         except Exception as e:
             logging.error("Scan checkpoints error: %s", e)
 
 
     def _unload_vram(self):
         try:
-            r = requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+            url = getattr(self, "server_url", COMFYUI_URL)
+            r = requests.post(url + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
             if r.status_code == 200:
                 self._set_status("VRAM purged successfully — memory freed!")
                 return True
@@ -833,7 +935,14 @@ class ComfyUIApp:
         # Initialize diagnostics system (crash handler + JSON logging + breadcrumbs)
         try:
             from comfyui_desktop.diagnostics import init_diagnostics, breadcrumb
-            init_diagnostics(os.path.dirname(os.path.abspath(__file__)), install_crash_hook=True, app_self=self)
+            # Stable base for crash dumps/bundles: in frozen onefile __file__ is
+            # inside the temp _MEI dir PyInstaller deletes on exit, so dumps would
+            # vanish. Use the real exe dir (or repo root when running from source).
+            if getattr(sys, "frozen", False):
+                _diag_base = os.path.dirname(os.path.abspath(sys.executable))
+            else:
+                _diag_base = os.path.dirname(os.path.abspath(__file__))
+            init_diagnostics(_diag_base, install_crash_hook=True, app_self=self)
             breadcrumb("app_start")
         except Exception as e:
             logging.warning("Diagnostics init warning: %s", e)
@@ -869,6 +978,10 @@ class ComfyUIApp:
         self.FONT_SMALL_BOLD = ctk.CTkFont(family="Segoe UI", size=10, weight="bold")
         self.FONT_LOGO = ctk.CTkFont(family="Segoe UI", size=22, weight="bold")
         self.FONT_LOGO_SUB = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        # QoL (2026-08-09): readable writing font for prompt/negative textboxes.
+        # Segoe UI at 13 (not the old size=10 generic) so it's easy to read while typing.
+        self.FONT_TEXT = ctk.CTkFont(family="Segoe UI", size=13)
+        self.FONT_TEXT_BOLD = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
 
         # Debounce guards for rapid clicks
         self._tab_switch_lock = False
@@ -876,6 +989,7 @@ class ComfyUIApp:
         self._preset_switch_lock = False
         self._generate_lock = False
         self._gen_start_time = None
+        self._poll_started_at = None  # QOL: track first running-poll timestamp for ETA
         self._last_tab_switch = 0
         self._last_model_switch = 0
         self._last_preset_switch = 0
@@ -886,12 +1000,15 @@ class ComfyUIApp:
         self._build_main()
         self._build_status_bar()
         self._build_sidebar_buttons()
+        # Restore saved window geometry (written by on_close) so the app
+        # reopens where the user left it. Safe: never crashes if absent/invalid.
+        self._restore_config()
 
         # Keyboard Shortcuts
-        root.bind("<Control-Return>", lambda e: self._start_generate())
-        root.bind("<Shift-Return>", lambda e: self._start_generate())
-        root.bind("<Control-e>", lambda e: self._start_generate())
-        root.bind("<Control-E>", lambda e: self._start_generate())
+        root.bind("<Control-Return>", lambda e: self._on_ctrl_e())
+        root.bind("<Shift-Return>", lambda e: self._on_ctrl_e())
+        root.bind("<Control-e>", lambda e: self._on_ctrl_e())
+        root.bind("<Control-E>", lambda e: self._on_ctrl_e())
         root.bind("<Control-r>", lambda e: self._restart_server())
         root.bind("<F5>", lambda e: self._refresh_gallery_main())
         root.bind("<Control-Key-1>", lambda e: self._switch_tab_by_index(0))
@@ -907,6 +1024,15 @@ class ComfyUIApp:
         root.bind("<Control-d>", lambda e: self._focus_debug())
         root.bind("<Escape>", lambda e: self._cancel_generate())
         root.bind("<Control-L>", lambda e: self._clear_prompt())
+        # F1 = Keyboard Shortcuts cheat sheet (built but was unwired).
+        root.bind("<F1>", lambda e: self._show_shortcut_modal())
+        # QoL: wire previously-dead helpers (complete impls, were never bound).
+        root.bind("<Control-Shift-C>", lambda e: self._copy_prompt())
+        root.bind("<Control-Shift-D>", lambda e: self._swap_dimensions())
+        root.bind("<Control-o>", lambda e: _open_file(OUTPUT_DIR))
+        root.bind("<Control-O>", lambda e: _open_file(OUTPUT_DIR))
+        root.bind("<Control-Shift-V>", lambda e: self._free_vram())
+        root.bind("<Control-Shift-v>", lambda e: self._free_vram())
         # Window Close Protocol
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -993,6 +1119,16 @@ class ComfyUIApp:
 
         self.vram_threshold_str = tk.StringVar(value=self.config_manager.settings.get("vram_threshold", "90% (Default)"))
         self.tooltips_enabled = tk.StringVar(value=self.config_manager.settings.get("tooltips_enabled", "1"))
+        # QoL toggles (default ON per user request). These persist via config_manager.
+        self.qol_prompt_history = tk.StringVar(value=self.config_manager.settings.get("qol_prompt_history", "1"))
+        self.qol_auto_restart = tk.StringVar(value=self.config_manager.settings.get("qol_auto_restart", "1"))
+        self.qol_restore_session = tk.StringVar(value=self.config_manager.settings.get("qol_restore_session", "1"))
+        self.qol_vram_readout = tk.StringVar(value=self.config_manager.settings.get("qol_vram_readout", "1"))
+        self.qol_copy_path = tk.StringVar(value=self.config_manager.settings.get("qol_copy_path", "1"))  # QOL: auto-copy output path
+        # QoL (2026-08-09): writing-font size (Small=11 / Medium=13 / Large=15)
+        self.text_size_str = tk.StringVar(value=self.config_manager.settings.get("text_size", "Medium"))
+        # QoL: last-used prompt capture (for "↺ Last Prompt")
+        self.last_prompt = None
         ToolTip.enabled = (self.tooltips_enabled.get() == "1")
 
         self.gpu_mode_str = tk.StringVar(value=self.config_manager.settings.get("gpu_mode", "Default"))
@@ -1020,6 +1156,20 @@ class ComfyUIApp:
         self.config_manager.save()
         self._set_status("Tooltip visibility updated")
 
+    def _on_text_size_change(self, val):
+        """QoL (2026-08-09): re-apply the writing font across all prompt/negative
+        textboxes live. Sizes: Small=11, Medium=13, Large=15 (Segoe UI)."""
+        self.config_manager.settings["text_size"] = val
+        self.config_manager.save()
+        _map = {"Small": 11, "Medium": 13, "Large": 15}
+        size = _map.get(val, 13)
+        try:
+            self.FONT_TEXT.configure(family="Segoe UI", size=size)
+            self.FONT_TEXT_BOLD.configure(family="Segoe UI", size=size, weight="bold")
+        except Exception:
+            pass
+        self._set_status("Text size: %s" % val)
+
     def _on_gpu_mode_change(self, val):
         self.config_manager.settings["gpu_mode"] = val
         self.config_manager.save()
@@ -1033,10 +1183,79 @@ class ComfyUIApp:
         pass
 
     def _start_backend_threads(self):
-        """Start backend polling threads after UI is first rendered."""
+        """Start backend polling threads after UI is first rendered.
+
+        Idempotent: __init__ schedules this once (~300ms) and main() also
+        schedules it once (~500ms). Without the guard the second call spawns a
+        SECOND backend server + error monitor + VRAM watch (and the backend
+        starter's _terminate_backend() then kills the first mid-boot). This
+        guard makes the duplicate a harmless no-op.
+        """
+        if getattr(self, "_backend_threads_started", False):
+            logging.info("backend threads already started; skipping duplicate start")
+            return
+        self._backend_threads_started = True
         threading.Thread(target=self._start_backend, daemon=True).start()
         threading.Thread(target=self._check_for_errors, daemon=True).start()
         self.root.after(5000, self._start_vram_watch)
+
+    def _build_info(self):
+        """Build identity shown in the title bar + sidebar.
+
+        Prefers the bundled build_info.json (written at BUILD time, so it is a
+        STABLE, meaningful build id). In a onefile PyInstaller bundle
+        sys.executable points at the temp-extracted copy whose mtime is the
+        *launch* time - useless for identifying the build - so we rely on the
+        embedded metadata. Falls back to file mtime/size if the JSON is missing.
+        Source run -> 'dev'.
+        """
+        # Fast path: embedded build metadata (correct for onefile builds).
+        try:
+            if getattr(sys, "frozen", False):
+                # onefile: datas are extracted to a temp dir at sys._MEIPASS
+                meipass = getattr(sys, "_MEIPASS", None)
+                candidates = []
+                if meipass:
+                    candidates.append(os.path.join(meipass, "build_info.json"))
+                candidates.append(os.path.join(os.path.dirname(sys.executable), "build_info.json"))
+                data = None
+                for _c in candidates:
+                    if os.path.exists(_c):
+                        with open(_c, encoding="utf-8") as _f:
+                            data = _f.read()
+                        break
+                if data is None:
+                    # last resort: bundled package resource
+                    try:
+                        import importlib.resources as _ir
+                        data = _ir.read_text("build_info", "build_info.json")
+                    except Exception:
+                        data = None
+                if data:
+                    meta = json.loads(data)
+                    stamp = meta.get("build", "")
+                    if stamp:
+                        try:
+                            sz = os.path.getsize(sys.executable) // (1024 * 1024)
+                        except Exception:
+                            sz = 0
+                        return stamp, sz
+        except Exception:
+            pass
+        # Fallback: file mtime + size (dev runs, or pre-metadata builds).
+        try:
+            exe = sys.executable if getattr(sys, "frozen", False) else __file__
+            st = os.stat(exe)
+            ts = datetime.datetime.fromtimestamp(st.st_mtime)
+            return ts.strftime("%Y-%m-%d %H:%M"), st.st_size // (1024 * 1024)
+        except Exception:
+            return "unknown", 0
+
+    def _stamped_title(self):
+        stamp, mb = self._build_info()
+        if getattr(sys, "frozen", False):
+            return "ComfyUI Uncensored  ·  build %s  ·  %d MB" % (stamp, mb)
+        return "ComfyUI Uncensored  ·  dev"
 
     # ------------------------------------------------------------------
     def _build_sidebar(self):
@@ -1078,6 +1297,20 @@ class ComfyUIApp:
                                          fg_color=BG_CARD_ALT, text_color=TEXT,
                                          font=self.FONT_NORMAL)
         self.status_label.grid(row=8, column=0, padx=14, pady=(20, 14), sticky="ew")
+
+        # Live VRAM readout chip (gated by qol_vram_readout; off by default-safe).
+        self.vram_chip = ctk.CTkLabel(sb, text="", height=22, corner_radius=8,
+                                      fg_color="#1E293B", text_color="#7DD3FC",
+                                      font=ctk.CTkFont(size=10, weight="bold"))
+        self.vram_chip.grid(row=9, column=0, padx=14, pady=(0, 14), sticky="ew")
+
+        # Build/version identity — root-cause fix for "is my exe the new one?"
+        s_stamp, s_mb = self._build_info()
+        ver_text = ("build %s · %d MB" % (s_stamp, s_mb)) if getattr(sys, "frozen", False) else "dev build"
+        self.version_label = ctk.CTkLabel(sb, text=ver_text, height=18, corner_radius=6,
+                                          fg_color="transparent", text_color=TEXT_MUTED,
+                                          font=ctk.CTkFont(size=9))
+        self.version_label.grid(row=10, column=0, padx=14, pady=(0, 10), sticky="w")
 
     def _apply_cursor_style(self, widget):
         try:
@@ -1159,6 +1392,8 @@ class ComfyUIApp:
             self._build_upscale_tab()
             self._build_preview_pane()
             self._build_sidebar_buttons()
+            # QoL: restore last session prompt/negative for the image tabs (if enabled).
+            self._restore_session_on_start()
             self._show_view(active_view)
             self._update_cursors_and_canvases()
         except Exception as e:
@@ -1179,6 +1414,20 @@ class ComfyUIApp:
         try:
             factor = float(v.replace("%", "")) / 100.0
             self._current_scaling_val = v
+            # PRESERVED_LEGACY: Prune destroyed widgets from ScalingTracker to prevent TclError crash on UI scaling change
+            try:
+                from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+                for win in list(ScalingTracker.window_widgets_dict.keys()):
+                    valid = []
+                    for w in ScalingTracker.window_widgets_dict.get(win, []):
+                        try:
+                            if hasattr(w, "winfo_exists") and w.winfo_exists():
+                                valid.append(w)
+                        except Exception:
+                            pass
+                    ScalingTracker.window_widgets_dict[win] = valid
+            except Exception as e:
+                logging.debug("ScalingTracker prune error: %s", e)
             ctk.set_widget_scaling(factor)
             self._set_status("UI Scaled to %s" % v)
         except Exception as e:
@@ -1290,9 +1539,23 @@ class ComfyUIApp:
         self._refresh_gallery_main()
 
     def _refresh_gallery_main(self):
-        """Populate gallery with thumbnails from OUTPUT_DIR in main area."""
+        """Populate gallery with thumbnails from OUTPUT_DIR in main area.
+
+        QoL + correctness fix (2026-08-09):
+          * PhotoImage objects are kept alive by storing them in a bounded
+            per-instance cache (self._gallery_thumb_cache) keyed by
+            (filename, mtime). Previously the PhotoImage lived only in a local
+            var referenced by lbl.image; because the local went out of scope
+            after the function returned, Tk could GC the image and render blank
+            thumbnails. The cache holds a strong reference for the image's life.
+          * Unchanged files (same mtime) skip the PIL open + thumbnail entirely,
+            so refreshing a large OUTPUT_DIR no longer re-decodes every image
+            on every poll.
+        """
         if not hasattr(self, '_gallery_frame_main') or not self._gallery_frame_main.winfo_exists():
             return
+        if not hasattr(self, '_gallery_thumb_cache'):
+            self._gallery_thumb_cache = {}
         for widget in self._gallery_frame_main.winfo_children():
             widget.destroy()
         try:
@@ -1302,11 +1565,15 @@ class ComfyUIApp:
                 return
             images = [f for f in os.listdir(OUTPUT_DIR)
                       if f.lower().endswith((".png", ".jpg", ".jpeg", ".mp4", ".webm")) and not f.startswith("input")]
-            images.sort(key=lambda x: os.path.getmtime(os.path.join(OUTPUT_DIR, x)), reverse=True)
+            images.sort(key=lambda x: _safe_mtime(os.path.join(OUTPUT_DIR, x)), reverse=True)
             if not images:
                 ctk.CTkLabel(self._gallery_frame_main, text="No generated media yet",
                              font=ctk.CTkFont(size=11), text_color=TEXT_MUTED).pack(pady=20)
                 return
+            # Drop cache entries for files that no longer exist
+            live = set(images)
+            for key in [k for k in self._gallery_thumb_cache if k[0] not in live]:
+                del self._gallery_thumb_cache[key]
             for idx, fname in enumerate(images):
                 fpath = os.path.join(OUTPUT_DIR, fname)
                 is_video = fname.lower().endswith((".mp4", ".webm"))
@@ -1317,13 +1584,18 @@ class ComfyUIApp:
                                            font=ctk.CTkFont(size=9), text_color=TEXT_DIM)
                         lbl.grid(row=idx // 3, column=idx % 3, padx=6, pady=6, sticky="nw")
                     else:
-                        img = Image.open(fpath)
-                        img.thumbnail((180, 140))
-                        photo = ImageTk.PhotoImage(img)
+                        mtime = _safe_mtime(fpath)
+                        cache_key = (fname, mtime)
+                        photo = self._gallery_thumb_cache.get(cache_key)
+                        if photo is None:
+                            img = Image.open(fpath)
+                            img.thumbnail((180, 140))
+                            photo = ImageTk.PhotoImage(img)
+                            # Keep a strong reference so Tk never GCs the thumbnail
+                            self._gallery_thumb_cache[cache_key] = photo
                         lbl = ctk.CTkLabel(self._gallery_frame_main, image=photo, text="",
                                            fg_color=BG_CARD, corner_radius=6, width=180, height=140)
-                        lbl.image = photo
-                        lbl.grid(row=idx // 3, column=idx % 3, padx=6, pady=6, sticky="nw")
+                        lbl.image = photo  # strong ref on the widget too
                     lbl.bind("<Button-1>", lambda e, fp=fpath: os.startfile(fp))
                     lbl.bind("<Button-3>", lambda e, fp=fpath, fn=fname: self._gallery_context_menu(e, fp, fn))
                     lbl.bind("<Enter>", lambda e, p=fname: self._set_status(p))
@@ -1351,6 +1623,7 @@ class ComfyUIApp:
         # PRESERVED_LEGACY: inlined control rendering replaced by shared helper to
         # stop dropdown-hover-color drift between main-area and tab surfaces.
         r = self._build_shared_settings_fields(self._settings_main, 1)
+        r = self._build_qol_settings(self._settings_main, r)
 
         ctk.CTkLabel(self._settings_main, text="Restart backend to apply changes.", font=ctk.CTkFont(size=9),
                      text_color=TEXT_MUTED).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
@@ -1401,6 +1674,89 @@ class ComfyUIApp:
                       ctk.CTkEntry(parent, textvariable=self.launch_args_str, width=280, fg_color=BG_CARD_ALT, text_color=TEXT)); r += 2
         return r
 
+    def _build_qol_settings(self, parent, start_row):
+        """Render the 'QoL & UX' toggle section (appended to both settings surfaces
+        so they stay in sync). All four default ON (recommended); user can flip any off.
+        Each toggle persists immediately via config_manager.save()."""
+        r = start_row
+        ctk.CTkLabel(parent, text="QoL & UX", font=ctk.CTkFont(size=12, weight="bold"),
+                     text_color=BRAND).grid(row=r, column=0, padx=10, pady=(10, 2), sticky="w"); r += 2
+
+        def _mk_toggle(row, label, help_key, var, cmd):
+            w = ctk.CTkSwitch(parent, text=label, variable=var,
+                              onvalue="1", offvalue="0", command=cmd,
+                              text_color=TEXT, button_hover_color=BRAND_HOVER,
+                              fg_color=BRAND, progress_color=BRAND)
+            self._labeled(parent, row, "", help_key, w, link=False); return None
+
+        self._labeled(parent, r, "Prompt History Recall", "Show a 'Last Prompt' button and a recent-prompts dropdown on the image tabs.",
+                      ctk.CTkSwitch(parent, text="Last Prompt + History", variable=self.qol_prompt_history,
+                                    onvalue="1", offvalue="0", command=self._on_qol_prompt_history_toggle,
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+        self._labeled(parent, r, "Auto-Restart Backend", "If the backend stops, show a toast with a one-click Restart instead of silent failure.",
+                      ctk.CTkSwitch(parent, text="Auto-Restart Toast", variable=self.qol_auto_restart,
+                                    onvalue="1", offvalue="0", command=self._on_qol_auto_restart_toggle,
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+        self._labeled(parent, r, "Restore Session", "Remember the last prompt + seed for each tab and restore them when you reopen the app.",
+                      ctk.CTkSwitch(parent, text="Restore Prompt/Seed", variable=self.qol_restore_session,
+                                    onvalue="1", offvalue="0", command=self._on_qol_restore_toggle,
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+        self._labeled(parent, r, "Live VRAM Readout", "Show a small VRAM % chip in the status bar (does not clobber 'Generating...').",
+                      ctk.CTkSwitch(parent, text="VRAM Chip", variable=self.qol_vram_readout,
+                                    onvalue="1", offvalue="0", command=self._on_qol_vram_toggle,
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+        self._labeled(parent, r, "Copy Output Path", "Copy the generated image/video file path to your clipboard as soon as it finishes.",
+                      ctk.CTkSwitch(parent, text="Copy Path", variable=self.qol_copy_path,
+                                    onvalue="1", offvalue="0", command=self._on_qol_copy_path_toggle,
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+
+        # QoL (2026-08-09): user-facing writing-font size control (Small/Medium/Large)
+        self._labeled(parent, r, "Text Size (prompts)", "Size of the prompt & negative-prompt text you type. Medium is the readable default.",
+                      ctk.CTkOptionMenu(parent, values=["Small", "Medium", "Large"],
+                                        variable=self.text_size_str,
+                                        command=self._on_text_size_change,
+                                        fg_color=BG_CARD_ALT, button_color=BORDER, text_color=TEXT,
+                                        button_hover_color=BRAND_HOVER,
+                                        dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                        dropdown_hover_color=DROPDOWN_HOVER), link=False); r += 2
+        return r
+
+    # --- QoL toggle handlers (persist immediately) ---
+    def _on_qol_prompt_history_toggle(self):
+        self.config_manager.settings["qol_prompt_history"] = self.qol_prompt_history.get()
+        self.config_manager.save()
+        self._set_status("Prompt history recall %s" % ("ON" if self.qol_prompt_history.get() == "1" else "OFF"))
+
+    def _on_qol_auto_restart_toggle(self):
+        self.config_manager.settings["qol_auto_restart"] = self.qol_auto_restart.get()
+        self.config_manager.save()
+        self._set_status("Auto-restart toast %s" % ("ON" if self.qol_auto_restart.get() == "1" else "OFF"))
+
+    def _on_qol_restore_toggle(self):
+        self.config_manager.settings["qol_restore_session"] = self.qol_restore_session.get()
+        self.config_manager.save()
+        self._set_status("Session restore %s" % ("ON" if self.qol_restore_session.get() == "1" else "OFF"))
+
+    def _on_qol_vram_toggle(self):
+        self.config_manager.settings["qol_vram_readout"] = self.qol_vram_readout.get()
+        self.config_manager.save()
+        if self.qol_vram_readout.get() != "1" and hasattr(self, "vram_chip") and self.vram_chip.winfo_exists():
+            try:
+                self.vram_chip.configure(text="")
+            except Exception:
+                pass
+        self._set_status("VRAM chip %s" % ("ON" if self.qol_vram_readout.get() == "1" else "OFF"))
+
+    def _on_qol_copy_path_toggle(self):
+        self.config_manager.settings["qol_copy_path"] = self.qol_copy_path.get()
+        self.config_manager.save()
+        self._set_status("Copy output path %s" % ("ON" if self.qol_copy_path.get() == "1" else "OFF"))
+
     def _build_main(self):
         self.root.grid_columnconfigure(1, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
@@ -1448,6 +1804,9 @@ class ComfyUIApp:
                                             command=self._on_model, width=160)
         self.model_menu.grid(row=0, column=0, padx=(0, 6), sticky="w")
         ToolTip(self.model_menu, *TOOLTIPS["Model"])
+        # Auto-discover real checkpoint files in CKPT_DIR so newly-dropped
+        # models appear in the dropdown without a code change.
+        self._scan_available_checkpoints()
 
         self.preset_menu = ctk.CTkOptionMenu(toolbar, values=list(PRESETS.keys()), font=self.FONT_NORMAL,
                                              variable=self.preset_var,
@@ -1510,7 +1869,7 @@ class ComfyUIApp:
         self.header = ctk.CTkLabel(self.top, text="", height=56)
         self.header.grid(row=2, column=0, columnspan=1, padx=0, pady=(2, 0), sticky="nsew")
 
-    def _labeled(self, parent, row, label, key, widget):
+    def _labeled(self, parent, row, label, key, widget, link=True):
         """Create a labeled control at the given row in parent grid.
 
         Places the label at `row` and the control at `row+1`, then returns the
@@ -1518,12 +1877,28 @@ class ComfyUIApp:
         advanced the row counter by only 1 after each call, which made every
         control overlap the next label -- collapsing the whole center panel
         into an unreadable stack (the 'middle is crunched together' bug).
+
+        `key` is interpreted per the `link` flag:
+          link=True  (default, image tabs) -- `key` is a TOOLTIPS dict key and
+                     the registered ("Title", "Body") pair is shown.
+          link=False (video tabs)          -- `key` is literal tooltip body
+                     text used verbatim, with no dictionary lookup.
+        PRESERVED_LEGACY: the 14 video-tab call sites already passed
+        `link=False`, but the parameter did not exist, so every one raised
+        TypeError: _labeled() got an unexpected keyword argument 'link' and
+        aborted the Text-to-Video and Video-to-Video builders. Accepting the
+        flag restores those controls *and* their tooltips, which were
+        previously dropped because long literal strings never match a
+        TOOLTIPS key.
         """
         ctk.CTkLabel(parent, text=label, font=ctk.CTkFont(size=10, weight="bold"),
                      text_color=TEXT).grid(row=row, column=0, padx=12, pady=(3, 0), sticky="w")
         widget.grid(row=row + 1, column=0, padx=12, pady=(0, 3), sticky="ew")
-        if key in TOOLTIPS:
-            ToolTip(widget, *TOOLTIPS[key])
+        if link:
+            if key in TOOLTIPS:
+                ToolTip(widget, *TOOLTIPS[key])
+        elif key:
+            ToolTip(widget, key)
         return row + 2
 
     # ------------------------------------------------------------------
@@ -1536,17 +1911,40 @@ class ComfyUIApp:
         enable_auto_hide_scrollbar(sf)
         sf.grid_columnconfigure(0, weight=1)
 
-        self.prompt_entry = ctk.CTkTextbox(sf, height=60, font=ctk.CTkFont(size=10),
+        self.prompt_entry = ctk.CTkTextbox(sf, height=60, font=self.FONT_TEXT,
                                            fg_color=BG_CARD_ALT, text_color=TEXT)
         self.prompt_entry.grid(row=0, column=0, padx=10, pady=(8, 0), sticky="nsew")
         self._apply_cursor_style(self.prompt_entry)
         ToolTip(self.prompt_entry, *TOOLTIPS["Prompt"])
-        self.prompt_entry.insert("1.0", "photorealistic portrait, detailed skin, studio light")
+        # Default to a neutral, general prompt (NOT a female-face portrait).
+        self.prompt_entry.insert("1.0", "a striking photorealistic portrait, sharp facial details, natural skin texture, soft studio rim light, shallow depth of field, 85mm lens, captured with a DSLR, 8k, ultra detailed, cinematic color grade")
 
-        ctk.CTkButton(sf, text="Copy Prompt", width=90, height=24,
+        # QoL: prompt-history recall (gated by qol_prompt_history). Two controls:
+        #  - "↺ Last Prompt" instantly restores the previous prompt/negative.
+        #  - "History ▾" lets you pick any of the last 20 prompts.
+        hist_row = ctk.CTkFrame(sf, fg_color="transparent")
+        hist_row.grid(row=1, column=0, padx=10, pady=(2, 0), sticky="w")
+        ctk.CTkButton(hist_row, text="↺ Last Prompt", width=104, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
-                     hover_color=BRAND_HOVER, command=lambda: self._copy_prompt()).grid(row=1, column=0, padx=10, pady=(2, 0), sticky="w")
-        self.neg_entry = ctk.CTkTextbox(sf, height=32, font=ctk.CTkFont(size=10),
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._restore_last_prompt("txt2img")).pack(side="left", padx=(0, 6))
+        self.img_hist_var = tk.StringVar(value="History")
+        self.img_hist_menu = ctk.CTkOptionMenu(hist_row, values=["History"],
+                                               variable=self.img_hist_var, width=120, height=24,
+                                               fg_color=BG_CARD_ALT, button_color=BORDER, text_color=TEXT,
+                                               button_hover_color=BRAND_HOVER,
+                                               dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                               dropdown_hover_color=DROPDOWN_HOVER,
+                                               command=lambda v: self._apply_history_prompt(v, "txt2img"))
+        self.img_hist_menu.pack(side="left")
+        # QoL: visible Copy-Prompt button (discoverable alternative to Ctrl+Shift+C)
+        ctk.CTkButton(hist_row, text="⧉ Copy", width=70, height=24,
+                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._copy_prompt()).pack(side="left", padx=(6, 0))
+        self._refresh_history_menu()
+
+        self.neg_entry = ctk.CTkTextbox(sf, height=32, font=self.FONT_TEXT,
                                         fg_color=BG_CARD_ALT, text_color=TEXT)
         self.neg_entry.grid(row=2, column=0, padx=10, pady=(2, 0), sticky="nsew")
         self._apply_cursor_style(self.neg_entry)
@@ -1666,14 +2064,14 @@ class ComfyUIApp:
                                           text_color=TEXT_MUTED)
         self.input_preview.grid(row=1, column=0, padx=10, pady=(6, 0), sticky="ew")
 
-        self.img2img_prompt_entry = ctk.CTkTextbox(sf, height=60, font=ctk.CTkFont(size=10),
+        self.img2img_prompt_entry = ctk.CTkTextbox(sf, height=60, font=self.FONT_TEXT,
                                                    fg_color=BG_CARD_ALT, text_color=TEXT)
         self.img2img_prompt_entry.grid(row=2, column=0, padx=10, pady=(8, 0), sticky="nsew")
         self._apply_cursor_style(self.img2img_prompt_entry)
         ToolTip(self.img2img_prompt_entry, *TOOLTIPS["Prompt"])
         self.img2img_prompt_entry.insert("1.0", "photorealistic portrait, detailed skin, studio light")
 
-        self.img2img_neg_entry = ctk.CTkTextbox(sf, height=32, font=ctk.CTkFont(size=10),
+        self.img2img_neg_entry = ctk.CTkTextbox(sf, height=32, font=self.FONT_TEXT,
                                                 fg_color=BG_CARD_ALT, text_color=TEXT)
         self.img2img_neg_entry.grid(row=3, column=0, padx=10, pady=(6, 0), sticky="nsew")
         self._apply_cursor_style(self.img2img_neg_entry)
@@ -1786,6 +2184,28 @@ class ComfyUIApp:
                                         button_hover_color=BRAND_HOVER, dropdown_fg_color=DROPDOWN_FG,
                                         dropdown_text_color=DROPDOWN_TEXT, dropdown_hover_color=DROPDOWN_HOVER))
 
+        # QoL: prompt-history recall controls (gated by qol_prompt_history).
+        ihist_row = ctk.CTkFrame(sf, fg_color="transparent")
+        ihist_row.grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w"); r += 1
+        ctk.CTkButton(ihist_row, text="↺ Last Prompt", width=104, height=24,
+                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._restore_last_prompt("img2img")).pack(side="left", padx=(0, 6))
+        self.img2img_hist_var = tk.StringVar(value="History")
+        self.img2img_hist_menu = ctk.CTkOptionMenu(ihist_row, values=["History"],
+                                                   variable=self.img2img_hist_var, width=120, height=24,
+                                                   fg_color=BG_CARD_ALT, button_color=BORDER, text_color=TEXT,
+                                                   button_hover_color=BRAND_HOVER,
+                                                   dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                                   dropdown_hover_color=DROPDOWN_HOVER,
+                                                   command=lambda v: self._apply_history_prompt(v, "img2img"))
+        self.img2img_hist_menu.pack(side="left")
+        # share the same history list as txt2img
+        ctk.CTkButton(ihist_row, text="Refresh", width=80, height=24,
+                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._refresh_history_menu()).pack(side="left", padx=(6, 0))
+
     def _build_upscale_tab(self):
         t = self.tabview.tab("Upscale")
         t.grid_columnconfigure(0, weight=1)
@@ -1821,6 +2241,12 @@ class ComfyUIApp:
                                         button_hover_color=BRAND_HOVER, dropdown_fg_color=DROPDOWN_FG,
                                         dropdown_text_color=DROPDOWN_TEXT, dropdown_hover_color=DROPDOWN_HOVER))
 
+        # QoL: parity with Gallery/Video/Debug — open the output folder from here too.
+        ctk.CTkButton(sf, text="Open Folder", width=100, height=28,
+                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
+                      hover_color=BRAND_HOVER,
+                      command=lambda: _open_folder(OUTPUT_DIR)).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
+
     def _build_video_tab(self):
         """Text to Video tab - MiniMax H3 local video gen (T2V + I2V).
         Full sampler/exposure per transcript feature list. Drives _build_h3_graph."""
@@ -1837,11 +2263,11 @@ class ComfyUIApp:
             sf.grid_rowconfigure(idx, weight=0)
 
         # Prompt
-        self.video_prompt = ctk.CTkTextbox(sf, height=60, font=ctk.CTkFont(size=10),
+        self.video_prompt = ctk.CTkTextbox(sf, height=60, font=self.FONT_TEXT,
                                            fg_color=BG_CARD_ALT, text_color=TEXT)
         self.video_prompt.grid(row=0, column=0, padx=10, pady=(8, 0), sticky="nsew")
         self._apply_cursor_style(self.video_prompt)
-        ToolTip(self.video_prompt, "Video prompt (multiline, dynamic). Describes the scene, motion, style, camera.")
+        ToolTip(self.video_prompt, "Video prompt (multiline, dynamic). Describes the scene, motion, style, camera.\n\nShortcut: Ctrl+E generates (same as Generate button).")
         self.video_prompt.insert("1.0", "cinematic aerial shot of a neon city at night, rain-slick streets, flying cars, slow push-in")
 
         # Mode (T2V / I2V)
@@ -1912,7 +2338,7 @@ class ComfyUIApp:
                                      dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                      dropdown_hover_color=DROPDOWN_HOVER, width=120)
         dur_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="w")
-        ToolTip(dur_menu, "Clip length. 17 frames/block @ 24fps: 3s~73 frames, 5s~124, 9s~217, 14s~337. Longer = slower on 8GB.")
+        ToolTip(dur_menu, "Clip length. Frames snap to the 17k+5 grid @ 24fps: 3s=73 frames, 5s=124, 9s=226, 14s=345. Longer = slower on 8GB.")
 
         # --- Motion & Options (research: camera presets, prompt enhance, loop, batch) ---
         self.video_camera_var = ctk.StringVar(value="Static")
@@ -2039,7 +2465,7 @@ class ComfyUIApp:
         ToolTip(bs, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM. Prevents OOM.")
 
         # Negative prompt
-        self.video_neg = ctk.CTkTextbox(sf, height=40, font=ctk.CTkFont(size=10),
+        self.video_neg = ctk.CTkTextbox(sf, height=40, font=self.FONT_TEXT,
                                         fg_color=BG_CARD_ALT, text_color=TEXT)
         self.video_neg.grid(row=15, column=0, padx=10, pady=(4, 4), sticky="nsew")
         self._apply_cursor_style(self.video_neg)
@@ -2079,11 +2505,29 @@ class ComfyUIApp:
         ToolTip(flb, "Locks the first/last frame (FL2VA mode) for controlled start/end. Source frame upload handled by backend.")
 
         # Generate button
+        # QOL: prompt-history recall for T2V tab (mirrors image-tab pattern)
+        vhist_row = ctk.CTkFrame(sf, fg_color="transparent")
+        vhist_row.grid(row=20, column=0, padx=10, pady=(4, 0), sticky="w")
+        ctk.CTkButton(vhist_row, text="↺ Last Prompt", width=104, height=24,
+                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._restore_last_prompt("video")).pack(side="left", padx=(0, 6))
+        self.video_hist_var = tk.StringVar(value="History")
+        self.video_hist_menu = ctk.CTkOptionMenu(vhist_row, values=["History"],
+                                                 variable=self.video_hist_var, width=120, height=24,
+                                                 fg_color=BG_CARD_ALT, button_color=BORDER, text_color=TEXT,
+                                                 button_hover_color=BRAND_HOVER,
+                                                 dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                                 dropdown_hover_color=DROPDOWN_HOVER,
+                                                 command=lambda v: self._apply_history_prompt(v, "video"))
         self.vgen = ctk.CTkButton(sf, text="Generate Video  (Ctrl+E)", width=200, font=self.FONT_NORMAL_BOLD,
                                 fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                                 command=lambda: self._start_video_gen("t2v"))
-        vgen.grid(row=20, column=0, padx=10, pady=(8, 4), sticky="w")
-        ToolTip(vgen, "Generate video with MiniMax H3 locally. Saves MP4 to Pictures/ComfyUI_Generated.")
+        # The button is stored on self (used by _start_video_gen/_reset_video_buttons);
+        # the bare local name `vgen` was left over from an earlier refactor and
+        # raised NameError, aborting the tab right before the button appeared.
+        self.vgen.grid(row=21, column=0, padx=10, pady=(8, 4), sticky="w")
+        ToolTip(self.vgen, "Generate video with MiniMax H3 locally. Saves MP4 to Pictures/ComfyUI_Generated.\n\nShortcut: Ctrl+E (also works from any video tab).")
 
     def _video_pick_i2v_image(self):
         from tkinter import filedialog
@@ -2226,14 +2670,14 @@ class ComfyUIApp:
         enable_auto_hide_scrollbar(sf)
         sf.grid_columnconfigure(0, weight=1)
 
-        self.v2v_prompt = ctk.CTkTextbox(sf, height=60, font=ctk.CTkFont(size=10),
+        self.v2v_prompt = ctk.CTkTextbox(sf, height=60, font=self.FONT_TEXT,
                                          fg_color=BG_CARD_ALT, text_color=TEXT)
         self.v2v_prompt.grid(row=0, column=0, padx=10, pady=(8, 0), sticky="nsew")
         self._apply_cursor_style(self.v2v_prompt)
         ToolTip(self.v2v_prompt, "Video prompt. Describes the motion/style you want the reference(s) to become.")
         self.v2v_prompt.insert("1.0", "transform into a hand-drawn anime style, keep the subject's motion, add gentle wind")
 
-        self.v2v_neg = ctk.CTkTextbox(sf, height=40, font=ctk.CTkFont(size=10),
+        self.v2v_neg = ctk.CTkTextbox(sf, height=40, font=self.FONT_TEXT,
                                       fg_color=BG_CARD_ALT, text_color=TEXT_DIM)
         self.v2v_neg.grid(row=1, column=0, padx=10, pady=(2, 0), sticky="nsew")
         self._apply_cursor_style(self.v2v_neg)
@@ -2275,7 +2719,7 @@ class ComfyUIApp:
                                      dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                      dropdown_hover_color=DROPDOWN_HOVER, width=120)
         dur_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="w")
-        ToolTip(dur_menu, "Clip length (17 frames/block @ 24fps).")
+        ToolTip(dur_menu, "Clip length. Frames snap to the 17k+5 grid @ 24fps (3s=73, 5s=124, 9s=226, 14s=345).")
 
         # Aspect ratio (research parity)
         self.v2v_ar_var = ctk.StringVar(value="16:9 Widescreen")
@@ -2397,15 +2841,23 @@ class ComfyUIApp:
         bs_switch.grid(row=15, column=0, padx=10, pady=(2, 6), sticky="w")
         ToolTip(bs_switch, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM.")
 
-        self.vgen = ctk.CTkButton(sf, text="Generate Video to Video  (Ctrl+E)", width=240, font=self.FONT_NORMAL_BOLD,
+        self.v2vgen = ctk.CTkButton(sf, text="Generate Video to Video  (Ctrl+E)", width=240, font=self.FONT_NORMAL_BOLD,
                                 fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                                 command=lambda: self._start_video_gen("v2v"))
-        vgen.grid(row=16, column=0, padx=10, pady=(8, 4), sticky="w")
-        ToolTip(vgen, "Generate Video-to-Video from your references (photo or video). Saves MP4 to Pictures/ComfyUI_Generated.")
+        # Stored under its own name: this tab previously also assigned to
+        # self.vgen, silently overwriting the Text-to-Video button reference
+        # whenever the V2V tab was built, so _reset_video_buttons re-labelled
+        # the wrong widget. The bare local `vgen` here raised NameError too.
+        self.v2vgen.grid(row=16, column=0, padx=10, pady=(8, 4), sticky="w")
+        ToolTip(self.v2vgen, "Generate Video-to-Video from your references (photo or video). Saves MP4 to Pictures/ComfyUI_Generated.\n\nShortcut: Ctrl+E (works from any video tab).")
 
     def _v2v_clear_refs(self):
         self.v2v_refs = []
         self.v2v_ref_list.configure(text="(no references yet)")
+        # QOL: clear thumbnail row
+        if hasattr(self, "_v2v_thumb_frame") and self._v2v_thumb_frame.winfo_exists():
+            for child in self._v2v_thumb_frame.winfo_children():
+                child.destroy()
         self._set_status("V2V references cleared")
 
     def _v2v_add_ref(self):
@@ -2417,6 +2869,33 @@ class ComfyUIApp:
             self.v2v_refs.append({"kind": kind, "path": p})
             names = ", ".join(os.path.basename(r["path"])[:16] for r in self.v2v_refs) or "(none)"
             self.v2v_ref_list.configure(text="Refs: " + names)
+            # QOL: show thumbnail preview of image references
+            self._v2v_show_thumbs()
+
+    def _v2v_show_thumbs(self):
+        """QOL: Render small thumbnails of image references inline below the ref list."""
+        from PIL import Image, ImageTk
+        # Lazily create the thumbnail container
+        if not hasattr(self, "_v2v_thumb_frame") or not self._v2v_thumb_frame.winfo_exists():
+            self._v2v_thumb_frame = ctk.CTkFrame(self.v2v_ref_list.master, fg_color=BG_CARD)
+            self._v2v_thumb_frame.grid(row=3, column=0, padx=10, pady=(2, 6), sticky="ew")
+        # Clear existing
+        for child in self._v2v_thumb_frame.winfo_children():
+            child.destroy()
+        col = 0
+        for r in self.v2v_refs:
+            if r["kind"] != "image":
+                continue
+            try:
+                im = Image.open(r["path"]).convert("RGB")
+                im.thumbnail((48, 48))
+                tk_im = ImageTk.PhotoImage(im)
+                lbl = ctk.CTkLabel(self._v2v_thumb_frame, image=tk_im, text="", width=50, height=50)
+                lbl.image = tk_im  # keep reference
+                lbl.grid(row=0, column=col, padx=4, pady=2)
+                col += 1
+            except Exception:
+                continue
 
     def _video_v2v_build_and_queue(self):
         """Build + queue the V2V workflow (ref2va DiT via MiniMaxH3ReferenceToVideo).
@@ -2513,10 +2992,9 @@ class ComfyUIApp:
                     wf["V2VImg%d" % img_i] = {"class_type": "LoadImage", "inputs": {"image": fpng}}
                     ref_inputs["ref_image_%d" % img_i] = ["V2VImg%d" % img_i, 0]
                     img_i += 1
-                if os.path.isfile(faudio) and aud_i <= 3:
-                    wf["V2VAud%d" % aud_i] = {"class_type": "LoadAudio", "inputs": {"audio": faudio}}
-                    ref_inputs["ref_audio_%d" % aud_i] = ["V2VAud%d" % aud_i, 0]
-                    aud_i += 1
+                if os.path.isfile(faudio) and vid_i <= 3:
+                    wf["V2VAud%d" % vid_i] = {"class_type": "LoadAudio", "inputs": {"audio": faudio}}
+                    ref_inputs["ref_video_audio_%d" % vid_i] = ["V2VAud%d" % vid_i, 0]
                 vid_i += 1
             else:  # audio
                 if aud_i > 3:
@@ -2557,26 +3035,36 @@ class ComfyUIApp:
             seed = random.randint(0, 2**63)
             wf["H3KS"]["inputs"]["seed"] = seed
             payload = {"prompt": wf, "client_id": "hermes_comfyui_uncensored"}
-            breadcrumb("post_prompt", mode=mode)
+            breadcrumb("post_prompt", mode=getattr(self, "_gen_mode", "v2v"))
             r = requests.post(COMFYUI_URL + "/prompt", json=payload, timeout=10)
+            # Safely extract the prompt_id even if the 200 response body is malformed,
+            # so polling can proceed instead of silently doing nothing.
+            prompt_id = None
+            try:
+                prompt_id = r.json().get("prompt_id")
+            except Exception:
+                pass
             if r.status_code == 200:
-                try:
-                    self.last_prompt_id = r.json().get("prompt_id")
-                    breadcrumb("post_ok", prompt_id=self.last_prompt_id)
-                except Exception:
-                    pass
+                if prompt_id:
+                    self.last_prompt_id = prompt_id
+                    breadcrumb("post_ok", prompt_id=prompt_id)
+                else:
+                    logging.error("V2V batch %d queued (HTTP 200) but no prompt_id in response", b + 1)
+                    self._set_status("V2V queued but server gave no prompt_id (batch %d)" % (b + 1))
             if r.status_code != 200:
                 try:
                     err_msg = r.json().get("error", {}).get("message", "HTTP %d" % r.status_code)
                 except Exception:
                     err_msg = "HTTP %d" % r.status_code
-                logging.error("V2V batch %d queue failed: %s", b+1, err_msg)
-                self._set_status("V2V queue failed (batch %d): %s" % (b+1, str(err_msg)[:70]))
+                logging.error("V2V batch %d queue failed: %s", b + 1, err_msg)
+                self._set_status("V2V queue failed (batch %d): %s" % (b + 1, str(err_msg)[:70]))
                 return None
             if b == 0:
-                self.last_prompt_id = r.json().get("prompt_id")
+                if prompt_id:
+                    self.last_prompt_id = prompt_id
                 self._gen_mode = "video"
                 self._poll_attempts = 0
+                self._poll_handoff = True
                 self.root.after(200, self._poll_history)
         self._set_status("Queued %d H3 V2V job(s)..." % max(1, batch))
         self._generate_lock = False
@@ -2617,7 +3105,7 @@ class ComfyUIApp:
         sc_menu.grid(row=2, column=0, padx=10, pady=(4, 4), sticky="ew")
         ToolTip(sc_menu, "Upscale factor via ffmpeg lanczos. 2x doubles resolution. 3x = heavy; ensure enough RAM.")
 
-        self.refine_instr = ctk.CTkTextbox(sf, height=50, font=ctk.CTkFont(size=10),
+        self.refine_instr = ctk.CTkTextbox(sf, height=50, font=self.FONT_TEXT,
                                            fg_color=BG_CARD_ALT, text_color=TEXT)
         self.refine_instr.grid(row=3, column=0, padx=10, pady=(4, 4), sticky="nsew")
         self._apply_cursor_style(self.refine_instr)
@@ -2627,8 +3115,8 @@ class ComfyUIApp:
         self.rgen = ctk.CTkButton(sf, text="Refine & Upscale  (Ctrl+E)", width=240, font=self.FONT_NORMAL_BOLD,
                                 fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                                 command=lambda: self._start_video_gen("refine"))
-        rgen.grid(row=4, column=0, padx=10, pady=(8, 4), sticky="w")
-        ToolTip(rgen, "ffmpeg lanczos upscale of the selected MP4. Output lands in Pictures/ComfyUI_Generated.")
+        self.rgen.grid(row=4, column=0, padx=10, pady=(8, 4), sticky="w")
+        ToolTip(self.rgen, "ffmpeg lanczos upscale of the selected MP4. Output lands in Pictures/ComfyUI_Generated.\n\nShortcut: Ctrl+E (works from any video tab).")
 
     def _refine_pick_src(self):
         from tkinter import filedialog
@@ -2675,13 +3163,32 @@ class ComfyUIApp:
                "-c:v", "libx264", "-preset", "medium", "-crf", "18",
                "-c:a", "copy", out]
         try:
-            subprocess.run(cmd, check=True, capture_output=True, timeout=600)
+            subprocess.run(cmd, check=True, capture_output=True, timeout=600,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
             self._set_status("Upscaled -> " + os.path.basename(out))
             return {"_local_file": out}
         except Exception as e:
             self._set_status("Upscale failed: %s" % str(e)[:60])
             logging.error("ffmpeg upscale error: %s", e)
             return None
+    def _video_button_for(self, mode):
+        """Return the Generate button widget that belongs to `mode`.
+
+        Text-to-Video, Video-to-Video and Refine each own a distinct button
+        (self.vgen / self.v2vgen / self.rgen). They previously shared the
+        self.vgen attribute, so building the V2V tab clobbered the T2V
+        reference and the Cancel/reset logic drove whichever button happened
+        to be assigned last. Returns None when the tab has not been built.
+        """
+        name = {"t2v": "vgen", "v2v": "v2vgen", "refine": "rgen"}.get(mode, "vgen")
+        btn = getattr(self, name, None)
+        try:
+            if btn is not None and btn.winfo_exists():
+                return btn
+        except Exception:
+            pass
+        return None
+
     def _start_video_gen(self, mode="t2v"):
         """Build + queue a MiniMax H3 video workflow (API format, proven valid).
         mode: 't2v' (Text to Video tab), 'v2v' (Video to Video tab),
@@ -2690,14 +3197,14 @@ class ComfyUIApp:
         import time, random
         if getattr(self, '_generate_lock', False):
             # If the button is already "Cancel", treat a click as cancel
-            btn = self.vgen if mode in ("t2v", "v2v") else self.rgen
+            btn = self._video_button_for(mode)
             if btn and str(btn.cget("text")).startswith("Cancel"):
                 self._cancel_generate()
                 return
             self._set_status("Video gen locked")
             return
         # Switch the active button to Cancel
-        btn = self.vgen if mode in ("t2v", "v2v") else self.rgen
+        btn = self._video_button_for(mode)
         if btn:
             try:
                 btn.configure(text="Cancel", fg_color="#CC3333", hover_color="#AA2222",
@@ -2712,7 +3219,10 @@ class ComfyUIApp:
         self._last_generate = time.time()
         self._generate_lock = True
         self._gen_start_time = time.time()
-        self._gen_start_time = time.time()
+        # Cleared here and set only when a job is successfully handed off to
+        # _poll_history, so the finally block can tell "queued, poller owns the
+        # buttons" from "failed, restore the buttons now".
+        self._poll_handoff = False
         try:
             if mode == "t2v":
                 self._set_status("Building H3 video workflow...")
@@ -2762,6 +3272,7 @@ class ComfyUIApp:
                         self.last_prompt_id = r.json().get("prompt_id")
                         self._gen_mode = "video"
                         self._poll_attempts = 0
+                        self._poll_handoff = True
                         self.root.after(200, self._poll_history)
                 self._set_status("Queued %d H3 video job(s) (%dx%d, %ds)..." % (max(1, batch), w, h, dur))
                 return
@@ -2794,30 +3305,80 @@ class ComfyUIApp:
             self.last_prompt_id = r.json().get("prompt_id")
             self._gen_mode = "video"
             self._poll_attempts = 0
+            self._poll_handoff = True
             self.root.after(200, self._poll_history)
         except Exception as e:
             logging.error("Video gen error: %s", e)
             self._set_status("Video gen error: %s" % str(e)[:40])
         finally:
             self._generate_lock = False
-            # Release VRAM after image gen (mutual exclusion with video gen)
+            # B5: release VRAM after every video gen (mutual exclusion with
+            # image gen). This single call replaces three identical duplicated
+            # /free POSTs that accumulated here across earlier patches -- each
+            # had a 5s timeout, so an unreachable backend stalled the UI for up
+            # to 15s on every generation instead of 5s.
             try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+                requests.post(COMFYUI_URL + "/free",
+                              json={"unload_models": True, "free_memory": True},
+                              timeout=5)
             except Exception:
                 pass
-            # Release VRAM after image gen (mutual exclusion with video gen)
+            # Restore the video buttons on EVERY exit path. Without this an
+            # early return (queue failure, unknown mode, build failure) left
+            # the tab's button reading "Cancel" even though nothing was
+            # running, and clicking it tried to cancel a non-existent job.
             try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
-            except Exception:
-                pass
-            # B5 FIX: release VRAM after every video gen (mutual exclusion with image gen)
-            try:
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=5)
+                if not self._poll_pending():
+                    self._reset_video_buttons()
             except Exception:
                 pass
 
+    def _poll_pending(self):
+        """True when this invocation handed a queued job to _poll_history.
+
+        Used to decide whether the video buttons may be reset immediately.
+        A successful queue hands off to _poll_history, which owns the button
+        state until the job finishes; a failed queue has no poller and must
+        restore the buttons itself. Deliberately a per-invocation flag rather
+        than an inspection of last_prompt_id, which survives from previous
+        runs and would wrongly suppress the reset after a failed queue.
+        """
+        return bool(getattr(self, "_poll_handoff", False))
+
+    def _has_tab(self, name):
+        """True if `name` is currently a tab in self.tabview.
+
+        Several builders are retained for legacy/tab surfaces that are no
+        longer added to the tabview (Gallery and Settings now live in the
+        main column). CTkTabview.tab(name) raises ValueError for an unknown
+        name, so every such builder must check first. Prefers the documented
+        public API and falls back to the private _name_list only if needed,
+        so a CustomTkinter upgrade cannot turn this into a hard crash.
+        """
+        try:
+            tv = getattr(self, "tabview", None)
+            if tv is None:
+                return False
+            names = getattr(tv, "_name_list", None)
+            if names is not None:
+                return name in names
+            tv.tab(name)
+            return True
+        except Exception:
+            return False
+
     def _build_gallery_tab(self):
-        """Build the Gallery tab - thumbnail grid of generated images."""
+        """Build the Gallery tab - thumbnail grid of generated images.
+
+        PRESERVED_LEGACY: the Gallery moved to the sidebar-driven main-column
+        view (_build_gallery_in_main). This tab builder is retained so the
+        legacy surface still works if a "Gallery" tab is ever re-added to the
+        tabview, but calling it while no such tab exists raised
+        ValueError: CTkTabview has no tab named 'Gallery'. Guard and no-op.
+        """
+        if not self._has_tab("Gallery"):
+            logging.debug("_build_gallery_tab skipped — no 'Gallery' tab in tabview")
+            return
         t = self.tabview.tab("Gallery")
         t.grid_columnconfigure(0, weight=1)
         t.grid_rowconfigure(0, weight=1)
@@ -2847,7 +3408,18 @@ class ComfyUIApp:
         self._refresh_gallery()
 
     def _refresh_gallery(self):
-        """Populate gallery with thumbnails from OUTPUT_DIR."""
+        """Populate gallery with thumbnails from OUTPUT_DIR.
+
+        PRESERVED_LEGACY: this refreshes the legacy Gallery *tab* surface,
+        whose _gallery_frame only exists once _build_gallery_tab has run.
+        Post-generation code (_poll_history) and _delete_gallery_file call this
+        unconditionally, which raised AttributeError: no attribute
+        '_gallery_frame' and aborted the post-save path. Bail out cleanly when
+        the legacy surface was never built; _refresh_gallery_main handles the
+        active main-column gallery.
+        """
+        if not hasattr(self, "_gallery_frame") or not self._gallery_frame.winfo_exists():
+            return
         for widget in self._gallery_frame.winfo_children():
             widget.destroy()
         try:
@@ -2857,7 +3429,7 @@ class ComfyUIApp:
                 return
             images = [f for f in os.listdir(OUTPUT_DIR)
                       if f.lower().endswith((".png", ".jpg", ".jpeg", ".mp4", ".webm")) and not f.startswith("input")]
-            images.sort(key=lambda x: os.path.getmtime(os.path.join(OUTPUT_DIR, x)), reverse=True)
+            images.sort(key=lambda x: _safe_mtime(os.path.join(OUTPUT_DIR, x)), reverse=True)
             if not images:
                 ctk.CTkLabel(self._gallery_frame, text="No generated media yet",
                              font=ctk.CTkFont(size=11), text_color=TEXT_MUTED).pack(pady=20)
@@ -2909,6 +3481,7 @@ class ComfyUIApp:
                      text_color=TEXT).grid(row=0, column=0, padx=10, pady=(10, 12), sticky="w")
 
         r = self._build_shared_settings_fields(sf, 1)
+        r = self._build_qol_settings(sf, r)
 
         ctk.CTkLabel(sf, text="Restart backend to apply changes.", font=ctk.CTkFont(size=9),
                      text_color=TEXT_MUTED).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
@@ -3062,7 +3635,8 @@ class ComfyUIApp:
             try:
                 import subprocess
                 r2 = subprocess.run(["nvidia-smi", "--query-gpu=memory.total,memory.used,memory.free",
-                                     "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10)
+                                     "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10,
+                                     creationflags=subprocess.CREATE_NO_WINDOW)
                 checks.append(("GPU VRAM", r2.returncode == 0, r2.stdout.strip().replace("\n"," | ") if r2.returncode==0 else "nvidia-smi unavailable"))
             except Exception as e:
                 checks.append(("GPU VRAM", False, str(e)[:80]))
@@ -3165,7 +3739,7 @@ class ComfyUIApp:
                     "Text to Video": "video", "Video to Video": "video",
                     "Video Refine & Upscale": "video",
                     "Video": "video", "video": "video",
-                    "Settings": "settings", "Debug": "debug",
+                    "Debug": "debug",
                 }
                 self.current_tab = tab_map.get(str(name), "txt2img")
                 if name in getattr(self, '_tab_callbacks', {}) and not getattr(self, '_tab_built', {}).get(name, False):
@@ -3283,6 +3857,15 @@ class ComfyUIApp:
                     continue
                 pct = 1 - (free / total)
                 thresh = self._get_vram_threshold_float()
+                # Backend is reachable again — clear the auto-restart toast latch.
+                if getattr(self, "_auto_restart_toast_shown", False):
+                    self._auto_restart_toast_shown = False
+                # Live VRAM chip (QoL). Thread-safe via root.after.
+                if getattr(self, "qol_vram_readout", tk.StringVar(value="1")).get() == "1" and getattr(self, "vram_chip", None) is not None:
+                    try:
+                        self.root.after(0, lambda p=pct: self.vram_chip.configure(text="VRAM %d%%" % int(p * 100)))
+                    except Exception:
+                        pass
                 # Don't spam "VRAM critical" while a generation is actively
                 # running — VRAM is naturally ~90%+ during a gen, and overwriting
                 # the "Generating..." status with "VRAM critical" makes the UI
@@ -3298,7 +3881,16 @@ class ComfyUIApp:
                 elif pct < (thresh - 0.15) and last_warned > 0:
                     last_warned = 0
             except Exception:
-                pass
+                # Backend unreachable — offer a one-click restart (QoL, gated).
+                if getattr(self, "qol_auto_restart", tk.StringVar(value="1")).get() == "1":
+                    if not getattr(self, "_auto_restart_toast_shown", False):
+                        self._auto_restart_toast_shown = True
+                        try:
+                            self.root.after(0, lambda: self._show_toast(
+                                "Backend Offline", "The ComfyUI backend is not responding. Click Restart to bring it back up.", error=True))
+                        except Exception:
+                            pass
+                time.sleep(1)
 
     def _check_for_errors(self):
         while self._running:
@@ -3336,15 +3928,19 @@ class ComfyUIApp:
     # ------------------------------------------------------------------
     def _build_workflow(self, mode):
         """Build the ComfyUI workflow dict for the given mode (txt2img/img2img/upscale)."""
+        if not mode or mode not in ("txt2img", "img2img", "upscale"):
+            mode = "txt2img"
         m = self.vars.get(mode, self.vars["txt2img"])
-        w = int(m["width"].get())
-        h = int(m["height"].get())
-        steps = int(m["steps"].get())
-        cfg = float(m["cfg"].get())
-        seed = int(m["seed"].get())
+        # Safe numeric parsing: clamp to valid ComfyUI ranges so a typo / empty
+        # field can NEVER raise ValueError and leave the Generate button stuck.
+        w = _safe_int(m["width"].get(), default=1024, lo=64, hi=4096)
+        h = _safe_int(m["height"].get(), default=1024, lo=64, hi=4096)
+        steps = _safe_int(m["steps"].get(), default=30, lo=1, hi=150)
+        cfg = _safe_float(m["cfg"].get(), default=7.0, lo=0.0, hi=30.0)
+        seed = _safe_int(m["seed"].get(), default=0, lo=0, hi=2**32 - 1)
         if seed == 0:
             seed = random.randint(1, 2**32 - 1)
-        batch = int(m["batch"].get())
+        batch = _safe_int(m["batch"].get(), default=1, lo=1, hi=8)
         if mode == "img2img" and hasattr(self, "img2img_prompt_entry"):
             prompt_text = self.img2img_prompt_entry.get("1.0", "end").strip()
             neg_text = self.img2img_neg_entry.get("1.0", "end").strip()
@@ -3357,8 +3953,8 @@ class ComfyUIApp:
         model_name = MODELS[self.model_var.get()]["value"]
         ckpt = model_name
 
-        model_strength = float(m["model_strength"].get()) if "model_strength" in m else 1.0
-        clip_strength = float(m["clip_strength"].get()) if "clip_strength" in m else 1.0
+        model_strength = _safe_float(m["model_strength"].get(), default=1.0, lo=0.0, hi=2.0) if "model_strength" in m else 1.0
+        clip_strength = _safe_float(m["clip_strength"].get(), default=1.0, lo=0.0, hi=2.0) if "clip_strength" in m else 1.0
 
         if mode == "txt2img":
             wf = {
@@ -3444,6 +4040,16 @@ class ComfyUIApp:
         else:
             return {}, ckpt
 
+    def _backend_online(self, timeout=4):
+        """QoL (2026-08-09): lightweight liveness probe so Generate can tell the
+        user *why* nothing happened when ComfyUI isn't running, instead of a
+        cryptic connection error. Returns True/False."""
+        try:
+            r = requests.get(COMFYUI_URL + "/system_stats", timeout=timeout)
+            return r.status_code == 200
+        except Exception:
+            return False
+
     def _ensure_model_loaded(self, model_name):
         """Symlink the selected model into models/checkpoints/ on-demand.
         FIX: do NOT create a symlink if the source file is missing in
@@ -3505,6 +4111,36 @@ class ComfyUIApp:
         except Exception:
             return False
 
+    def _on_ctrl_e(self):
+        """Tab-aware Ctrl+E / Ctrl+Enter / Shift+Enter.
+
+        Routes to the correct generator based on the active tab so the
+        '(Ctrl+E)' label on every Generate button is actually accurate
+        (previously the global binding only ever fired image generation and
+        did nothing on the Video tabs)."""
+        tab = getattr(self, "current_tab", "txt2img")
+        if tab == "video":
+            # Map the active video sub-tab to its generator mode.
+            try:
+                vt = getattr(self, "video_mode_var", None)
+                if vt is not None and "I2V" in str(vt.get()):
+                    self._start_video_gen("v2v")
+                else:
+                    self._start_video_gen("t2v")
+            except Exception:
+                self._start_video_gen("t2v")
+        else:
+            self._start_generate()
+
+    def _neg_for_mode(self, mode):
+        """Return the current negative-prompt text for a given tab."""
+        try:
+            if mode == "img2img":
+                return self.img2img_neg_entry.get("1.0", "end-1c").strip()
+            return self.neg_entry.get("1.0", "end-1c").strip()
+        except Exception:
+            return ""
+
     def _start_generate(self, mode=None):
         breadcrumb("start_generate", mode=mode or getattr(self, "current_tab", "?"))
         import time
@@ -3529,6 +4165,19 @@ class ComfyUIApp:
             return
         self._last_generate = time.time()
         self._generate_lock = True
+        # QoL: capture the prompt/negative this run used so the "↺ Last Prompt"
+        # button can restore it (and persist across restarts via restore-session).
+        try:
+            self.last_prompt = {"prompt": self._prompt_for_mode(target_mode),
+                                "negative": self._neg_for_mode(target_mode)}
+        except Exception:
+            pass
+        try:
+            if self.qol_restore_session.get() == "1":
+                self.config_manager.settings["last_session_%s" % target_mode] = self.last_prompt
+                self.config_manager.save()
+        except Exception:
+            pass
         try:
             logging.info("Starting generate workflow")
             if hasattr(self, '_generate') and callable(getattr(self, '_generate')):
@@ -3537,6 +4186,14 @@ class ComfyUIApp:
             if hasattr(self, 'gen_btn') and self.gen_btn:
                 self.gen_btn.configure(state="disabled")
             self._set_status("Building workflow...")
+            # QoL (2026-08-09): pre-flight backend probe — if ComfyUI isn't
+            # running, say so plainly instead of surfacing a raw connection error.
+            if not self._backend_online():
+                self._set_status("⚠ Backend offline — start ComfyUI (port 8188) then retry")
+                self._show_toast("ComfyUI Offline", "Start ComfyUI, then click Generate again.", error=True)
+                if hasattr(self, 'gen_btn') and self.gen_btn:
+                    self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal", command=self._start_generate)
+                return
             try:
                 wf, ckpt = self._build_workflow(target_mode)
                 self._ensure_model_loaded(ckpt)
@@ -3563,6 +4220,10 @@ class ComfyUIApp:
                     self.gen_btn.configure(text="Cancel", command=self._cancel_generate)
                 self._poll_attempts = 0
                 self.root.after(200, self._poll_history)
+            except requests.exceptions.ConnectionError:
+                self._set_status("⚠ Backend offline — start ComfyUI (port 8188) then retry")
+                if hasattr(self, 'gen_btn') and self.gen_btn:
+                    self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal", command=self._start_generate)
             except Exception as e:
                 logging.error("Generate error: %s", e)
                 self._set_status("Generate error: %s" % str(e)[:40])
@@ -3593,7 +4254,11 @@ class ComfyUIApp:
 
     def _fmt_elapsed(self, seconds):
         """Format elapsed seconds as [MM:SS] or [H:MM:SS]."""
-        s = int(seconds)
+        try:
+            import math
+            s = max(0, int(seconds)) if seconds is not None and not math.isnan(float(seconds)) else 0
+        except Exception:
+            s = 0
         h, m = divmod(s, 3600)
         m, s = divmod(m, 60)
         if h:
@@ -3601,19 +4266,26 @@ class ComfyUIApp:
         return "%02d:%02d" % (m, s)
 
     def _reset_video_buttons(self):
-        """Restore video gen buttons to their normal Generate state."""
-        try:
-            if hasattr(self, "vgen") and self.vgen.winfo_exists():
-                mode = getattr(self, "_gen_mode", None)
-                label = "Generate Video  (Ctrl+E)" if mode != "v2v" else "Generate Video to Video  (Ctrl+E)"
-                self.vgen.configure(text=label, fg_color=ACCENT2, hover_color=ACCENT2_HOVER,
-                                    command=lambda: self._start_video_gen("t2v" if mode != "v2v" else "v2v"))
-            if hasattr(self, "rgen") and self.rgen.winfo_exists():
-                self.rgen.configure(text="Refine & Upscale  (Ctrl+E)", fg_color=ACCENT2,
-                                    hover_color=ACCENT2_HOVER,
-                                    command=lambda: self._start_video_gen("refine"))
-        except Exception:
-            pass
+        """Restore video gen buttons to their normal Generate state.
+
+        Resets all three video buttons independently. Previously only
+        self.vgen and self.rgen were handled and the V2V button shared the
+        vgen attribute, so after a V2V run the Text-to-Video button could be
+        left showing "Cancel" with no way back to Generate.
+        """
+        for name, label, mode in (
+            ("vgen", "Generate Video  (Ctrl+E)", "t2v"),
+            ("v2vgen", "Generate Video to Video  (Ctrl+E)", "v2v"),
+            ("rgen", "Refine & Upscale  (Ctrl+E)", "refine"),
+        ):
+            try:
+                btn = getattr(self, name, None)
+                if btn is not None and btn.winfo_exists():
+                    btn.configure(text=label, fg_color=ACCENT2,
+                                  hover_color=ACCENT2_HOVER,
+                                  command=lambda m=mode: self._start_video_gen(m))
+            except Exception:
+                pass
 
     def _gallery_context_menu(self, event, fpath, fname):
         """Show right-click menu for gallery thumbnails."""
@@ -3622,6 +4294,7 @@ class ComfyUIApp:
                           activebackground="#4a4a4a", activeforeground="#ffffff")
             menu.add_command(label="Open in Viewer", command=lambda: os.startfile(fpath))
             menu.add_command(label="Copy Path", command=lambda: self.root.clipboard_append(os.path.abspath(fpath)))
+            menu.add_command(label="Open Folder", command=lambda: os.startfile(os.path.dirname(os.path.abspath(fpath))))
             menu.add_separator()
             menu.add_command(label="Copy Image", command=lambda: self._copy_image_to_clipboard(fpath))
             menu.add_separator()
@@ -3688,9 +4361,15 @@ class ComfyUIApp:
                          text_color="#FFE0E0" if error else TEXT_MUTED,
                          wraplength=300, justify="left").pack(padx=14, pady=(0, 10))
             toast.after(4000, toast.destroy)
-            self._toasts = getattr(self, "_toasts", []) + [toast]
-            if len(self._toasts) > 5:
-                self._toasts.pop(0).destroy()
+            toasts = [t for t in getattr(self, "_toasts", []) if hasattr(t, "winfo_exists") and t.winfo_exists()]
+            toasts.append(toast)
+            if len(toasts) > 5:
+                oldest = toasts.pop(0)
+                try:
+                    oldest.destroy()
+                except Exception:
+                    pass
+            self._toasts = toasts
         except Exception:
             pass
 
@@ -3718,8 +4397,127 @@ class ComfyUIApp:
                         self.root.clipboard_clear()
                         self.root.clipboard_append(txt)
                         self._set_status("Prompt copied to clipboard")
+                        self._show_toast("Prompt Copied", "Active prompt text copied to clipboard")
                         return
             self._set_status("No prompt text to copy")
+        except Exception:
+            pass
+
+    # --- QoL: prompt-history recall (gated by qol_prompt_history) ---
+    def _refresh_history_menu(self):
+        """Rebuild the History dropdown(s) from self.history (most-recent first, last 20)."""
+        try:
+            items = []
+            for h in reversed(self.history[-20:]):
+                p = (h.get("prompt") or "").strip().replace("\n", " ")
+                if not p:
+                    continue
+                label = p if len(p) <= 38 else p[:35] + "..."
+                if label not in items:
+                    items.append(label)
+            if not items:
+                items = ["History"]
+            for menu, var in ((getattr(self, "img_hist_menu", None), getattr(self, "img_hist_var", None)),
+                              (getattr(self, "img2img_hist_menu", None), getattr(self, "img2img_hist_var", None)),
+                              (getattr(self, "video_hist_menu", None), getattr(self, "video_hist_var", None))):
+                if menu is None or not menu.winfo_exists():
+                    continue
+                if var.get() not in items:
+                    var.set("History")
+                menu.configure(values=items)
+        except Exception:
+            pass
+
+    def _restore_session_on_start(self):
+        """If qol_restore_session is ON, reload the last prompt/negative per tab."""
+        try:
+            if self.qol_restore_session.get() != "1":
+                return
+            for mode, pentry, nentry in (
+                ("txt2img", getattr(self, "prompt_entry", None), getattr(self, "neg_entry", None)),
+                ("img2img", getattr(self, "img2img_prompt_entry", None), getattr(self, "img2img_neg_entry", None)),
+            ):
+                saved = self.config_manager.settings.get("last_session_%s" % mode)
+                if not saved or not isinstance(saved, dict):
+                    continue
+                p = (saved.get("prompt") or "").strip()
+                n = (saved.get("negative") or "").strip()
+                if p and pentry is not None and pentry.winfo_exists():
+                    current = pentry.get("1.0", "end-1c").strip()
+                    # Only overwrite if the field still holds the default placeholder.
+                    if current and "photorealistic portrait" not in current:
+                        continue
+                    pentry.delete("1.0", "end")
+                    pentry.insert("1.0", p)
+                if n and nentry is not None and nentry.winfo_exists():
+                    nentry.delete("1.0", "end")
+                    nentry.insert("1.0", n)
+                self.last_prompt = {"prompt": p, "negative": n}
+        except Exception:
+            pass
+
+    def _restore_last_prompt(self, tab):
+        """Restore the most recent prompt+negative (from previous session or last gen)."""
+        try:
+            if self.qol_prompt_history.get() != "1":
+                return
+            # QoL (2026-08-09): route to the ACTIVE tab's real entries. The old
+            # getattr(self, "%s_prompt" % tab) lookup pointed at attributes that
+            # never existed for image tabs, so the button did nothing.
+            if tab == "img2img" and hasattr(self, "img2img_prompt_entry"):
+                target = self.img2img_prompt_entry
+                neg = self.img2img_neg_entry
+            elif tab == "upscale" and hasattr(self, "upscale_prompt_entry"):
+                target = self.upscale_prompt_entry
+                neg = getattr(self, "upscale_neg_entry", None)
+            elif tab == "video" and hasattr(self, "video_prompt"):
+                target = self.video_prompt
+                neg = getattr(self, "video_neg", None)
+            elif hasattr(self, "prompt_entry"):
+                target = self.prompt_entry
+                neg = self.neg_entry
+            else:
+                target = None
+                neg = None
+            if target is None:
+                return
+            prev = getattr(self, "last_prompt", None)
+            if not prev:
+                # fall back to most recent saved history entry
+                if self.history:
+                    prev = {"prompt": self.history[-1].get("prompt", ""),
+                            "negative": ""}
+            if not prev:
+                self._set_status("No previous prompt to restore")
+                return
+            target.delete("1.0", "end")
+            target.insert("1.0", prev.get("prompt", ""))
+            if neg is not None and prev.get("negative"):
+                neg.delete("1.0", "end")
+                neg.insert("1.0", prev.get("negative", ""))
+            self._set_status("Restored last prompt")
+        except Exception:
+            pass
+
+    def _apply_history_prompt(self, label, tab):
+        """Apply a selected history entry's full prompt to the active tab."""
+        try:
+            if label in ("", "History"):
+                return
+            target = getattr(self, "%s_prompt" % tab, None)
+            if target is None:
+                return
+            for h in reversed(self.history):
+                p = (h.get("prompt") or "").replace("\n", " ").strip()
+                if p[:35] == label[:35] or p == label:
+                    target.delete("1.0", "end")
+                    target.insert("1.0", h.get("prompt", ""))
+                    neg = getattr(self, "%s_neg" % tab, None)
+                    if neg is not None and h.get("negative"):
+                        neg.delete("1.0", "end")
+                        neg.insert("1.0", h.get("negative", ""))
+                    self._set_status("Loaded prompt from history")
+                    return
         except Exception:
             pass
 
@@ -3737,6 +4535,7 @@ class ComfyUIApp:
         self._reset_video_buttons()
         self._generate_lock = False
         self._gen_start_time = None
+        self._poll_started_at = None  # QOL: track first running-poll timestamp for ETA
 
     def _poll_history(self):
         """FIX: poll ComfyUI history with retries until done, error, or timeout.
@@ -3751,6 +4550,15 @@ class ComfyUIApp:
             self._set_status("Polling timed out")
             if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
                 self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal", command=self._start_generate)
+            # Release the generation lock and restore the video buttons too.
+            # Previously only gen_btn was reset here, so a timeout left
+            # _generate_lock stuck True -- every later Generate click hit the
+            # "locked" guard and returned silently, and the video tabs kept
+            # showing "Cancel". The app appeared dead until restart.
+            self._reset_video_buttons()
+            self._generate_lock = False
+            self._gen_start_time = None
+            self._poll_started_at = None  # QOL: track first running-poll timestamp for ETA
             return
         self._poll_attempts += 1
         try:
@@ -3776,6 +4584,8 @@ class ComfyUIApp:
                             for vid_data in node_out.get("videos", []):
                                 if vid_data.get("type") == "output":
                                     self._show_video(vid_data)
+                        # QOL: clear the started-time marker on completion
+                        self._poll_started_at = None
                         return
                     elif status.get("error"):
                         err_msg = status.get("error", {}).get("message", "") if isinstance(status.get("error"), dict) else str(status.get("error", ""))
@@ -3788,11 +4598,63 @@ class ComfyUIApp:
                         if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
                             self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal", command=self._start_generate)
                         self._reset_video_buttons()
+                        # BUGFIX: reset generation timing state so stale elapsed
+                        # time doesn't continue to show after an error.
+                        self._generate_lock = False
+                        self._gen_start_time = None
+                        self._poll_started_at = None
                         return
+                    # QOL: update ETA while job is still running
+                    self._update_eta(status, item_id, status.get("exec_info"))
         except Exception:
             pass
         if self._running:
             self.root.after(500, self._poll_history)
+
+    def _update_eta(self, status, item_id, exec_info):
+        """QOL: Display an estimated time remaining while a job is running.
+
+        Uses ComfyUI's exec_info (which reports node progress as 0.0-1.0)
+        when available. Falls back to a linear estimate based on when
+        we first saw the job running and how many steps were configured.
+        """
+        try:
+            if not status.get("running") and not status.get("executing"):
+                # First time we see this job running — record the timestamp
+                if getattr(self, "_poll_started_at", None) is None:
+                    self._poll_started_at = time.time()
+                return
+
+            # Job is running — try to compute an ETA
+            started = getattr(self, "_poll_started_at", None)
+            if started is None:
+                started = self._gen_start_time or time.time()
+                self._poll_started_at = started
+
+            elapsed = time.time() - started
+
+            # Try ComfyUI's built-in progress reporting first
+            progress = 0.0
+            if exec_info:
+                node_progress = exec_info.get("progress", {})
+                if node_progress:
+                    # progress is a dict of node_id -> float (0..1)
+                    vals = [v for v in node_progress.values() if isinstance(v, (int, float))]
+                    if vals:
+                        progress = sum(vals) / len(vals)
+
+            if progress > 0.01:
+                eta = elapsed * (1.0 / progress - 1.0)
+                if eta > 2:
+                    self._set_status("Generating… ETA %s" % self._fmt_elapsed(eta))
+                else:
+                    self._set_status("Generating… finalizing")
+            else:
+                # Fallback: just show it's running with elapsed time
+                if elapsed > 5:
+                    self._set_status("Generating… %s elapsed" % self._fmt_elapsed(elapsed))
+        except Exception:
+            pass
 
     def _show_image(self, img_meta):
         mode = getattr(self, "_gen_mode", self.current_tab)
@@ -3809,8 +4671,10 @@ class ComfyUIApp:
             self.current_pil = img
             self._display_preview(img)
             out_path = os.path.join(OUTPUT_DIR, fn)
-            with open(out_path, "wb") as fh:
+            tmp_path = out_path + ".tmp"
+            with open(tmp_path, "wb") as fh:
                 fh.write(r.content)
+            os.replace(tmp_path, out_path)
             self._add_thumb(out_path, mode, only_preview=False)
             self._reload_recent_preview()
             fmt = self.vars.get(mode, {}).get("format")
@@ -3820,12 +4684,26 @@ class ComfyUIApp:
             self._save_history(mode, fn)
             if self.current_tab == "gallery":
                 self._refresh_gallery()
-            self._set_status("Done")
+            # QOL: auto-copy output path to clipboard when enabled
+            if self.qol_copy_path.get() == "1" and self.root and self.root.winfo_exists():
+                try:
+                    self.root.clipboard_clear()
+                    self.root.clipboard_append(out_path)
+                    self._set_status("Done — path copied to clipboard")
+                except Exception:
+                    self._set_status("Done")
+            else:
+                self._set_status("Done")
             # Re-enable the Generate button after a successful generation
             if hasattr(self, "gen_btn") and self.gen_btn.winfo_exists():
                 self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal", command=self._start_generate)
             self._generate_lock = False
             self._gen_start_time = None
+            self._poll_started_at = None  # QOL: track first running-poll timestamp for ETA
+            # Refresh the main-column gallery grid so the new image appears immediately
+            if hasattr(self, "_refresh_gallery_main"):
+                self._refresh_gallery_main()
+            self._show_toast("Generation Complete", f"Saved {fn[:25]}")
         except Exception as e:
             self._set_status("Show image error: %s" % str(e)[:30])
 
@@ -3843,13 +4721,28 @@ class ComfyUIApp:
                 self._set_status("Video download failed (%d)" % r.status_code)
                 return
             out_path = os.path.join(OUTPUT_DIR, fn)
-            with open(out_path, "wb") as fh:
+            tmp_path = out_path + ".tmp"
+            with open(tmp_path, "wb") as fh:
                 fh.write(r.content)
+            os.replace(tmp_path, out_path)
             self._save_history(mode, fn)
-            self._set_status("Video done: %s | VRAM purged" % fn)
+            self._show_toast("Video Complete", f"Saved {fn[:25]}")
+            # QOL: auto-copy output path to clipboard when enabled
+            if self.qol_copy_path.get() == "1" and self.root and self.root.winfo_exists():
+                try:
+                    self.root.clipboard_clear()
+                    self.root.clipboard_append(out_path)
+                    self._set_status("Video done: %s | path copied to clipboard" % fn)
+                except Exception:
+                    self._set_status("Video done: %s | VRAM purged" % fn)
+            else:
+                self._set_status("Video done: %s | VRAM purged" % fn)
             self._unload_vram()
             # Video gen complete — reset lock (video gen button is a local var, can't update from here)
             self._generate_lock = False
+            # Refresh the main-column gallery grid so the new video appears immediately
+            if hasattr(self, "_refresh_gallery_main"):
+                self._refresh_gallery_main()
             # Open the folder so the user can watch it
             try:
                 os.startfile(OUTPUT_DIR)
@@ -3860,20 +4753,23 @@ class ComfyUIApp:
             self._reset_video_buttons()
             self._generate_lock = False
             self._gen_start_time = None
+            self._poll_started_at = None  # QOL: track first running-poll timestamp for ETA
 
     def _display_preview(self, img):
-        disp = img.copy()
-        disp.thumbnail((360, 360))
-        tkimg = ctk.CTkImage(light_image=disp, dark_image=disp, size=disp.size)
-        self.preview_label.configure(image=tkimg, text="")
-        self.preview_label.image = tkimg
-        # also update the large preview window in the Generate view
         try:
-            big = img.copy()
-            big.thumbnail((320, 360))
-            bimg = ctk.CTkImage(light_image=big, dark_image=big, size=big.size)
-            self.preview_big.configure(image=bimg, text="")
-            self.preview_big.image = bimg
+            disp = img.copy()
+            disp.thumbnail((360, 360))
+            tkimg = ctk.CTkImage(light_image=disp, dark_image=disp, size=disp.size)
+            if hasattr(self, "preview_label") and self.preview_label and getattr(self.preview_label, "winfo_exists", lambda: True)():
+                self.preview_label.configure(image=tkimg, text="")
+                self.preview_label.image = tkimg
+            # also update the large preview window in the Generate view
+            if hasattr(self, "preview_big") and self.preview_big and getattr(self.preview_big, "winfo_exists", lambda: True)():
+                big = img.copy()
+                big.thumbnail((320, 360))
+                bimg = ctk.CTkImage(light_image=big, dark_image=big, size=big.size)
+                self.preview_big.configure(image=bimg, text="")
+                self.preview_big.image = bimg
         except Exception:
             pass
 
@@ -3974,8 +4870,10 @@ class ComfyUIApp:
         }
         self.history.append(entry)
         try:
-            with open(HISTORY_FILE, "w") as fh:
+            tmp_hist = HISTORY_FILE + ".tmp"
+            with open(tmp_hist, "w", encoding="utf-8") as fh:
                 json.dump(self.history, fh, indent=2)
+            os.replace(tmp_hist, HISTORY_FILE)
         except Exception as e:
             self._set_status("History save error: %s" % str(e)[:20])
 
@@ -4003,11 +4901,13 @@ class ComfyUIApp:
 
     def _set_status_gui(self, msg, level):
         try:
-            # Prepend elapsed generation time when a job is running
+            # QOL: Prepend elapsed generation time AND live VRAM usage when a job is running
             if getattr(self, "_gen_start_time", None) is not None and level < logging.WARNING:
                 elapsed = time.time() - self._gen_start_time
+                elapsed_str = self._fmt_elapsed(elapsed)
+                vram_str = self._fmt_vram_live()
                 if elapsed > 1:
-                    msg = "[%s] %s" % (self._fmt_elapsed(elapsed), msg)
+                    msg = "[%s] %s %s" % (elapsed_str, vram_str, msg)
             if not hasattr(self, "status_label") or not self.status_label.winfo_exists():
                 return
             truncated = msg[:33] + "..." if len(msg) > 36 else msg
@@ -4017,6 +4917,25 @@ class ComfyUIApp:
                 self.status_label.configure(text=truncated, text_color=TEXT)
         except Exception:
             pass
+
+    def _fmt_vram_live(self):
+        """Return a compact VRAM usage string like 'VRAM:12.3%'. Non-blocking."""
+        try:
+            import requests as _r
+            r = _r.get(COMFYUI_URL + "/system_stats", timeout=2)
+            if r.status_code != 200:
+                return ""
+            devs = r.json().get("devices", [])
+            if devs:
+                d = devs[0]
+                total = d.get("vram_total", 0) or 0
+                free = d.get("vram_free", 0) or 0
+                if total > 0:
+                    pct = int((1 - free / total) * 100)
+                    return "VRAM:%d%%" % pct
+        except Exception:
+            pass
+        return ""
 
     def _on_crash(self, crash: dict):
         """Called (on the Tk main thread) when the crash handler fires.
@@ -4060,6 +4979,11 @@ class ComfyUIApp:
                 json.dump({"geometry": self.root.geometry()}, f)
         except Exception:
             pass
+        try:
+            if hasattr(self, "backend_manager") and self.backend_manager:
+                self.backend_manager.stop()
+        except Exception:
+            pass
         # Run backend kill in a background thread so the GUI thread isn't blocked
         def _shutdown():
             self._terminate_backend()
@@ -4070,6 +4994,31 @@ class ComfyUIApp:
             self.root.after(300, self._force_quit)
         except Exception:
             self._force_quit()
+
+    def _restore_config(self):
+        """Restore saved window geometry (written by on_close) so the app
+        reopens where the user left it. Fully additive + safe — any failure
+        (missing file, invalid geometry, headless selftest) is swallowed."""
+        try:
+            path = _get_config_path()
+            if not os.path.exists(path):
+                return
+            with open(path, "r") as f:
+                cfg = json.load(f)
+            geo = cfg.get("geometry")
+            if geo and isinstance(geo, str) and "x" in geo and "+" in geo:
+                self.root.geometry(geo)
+            # QoL (2026-08-09): honor persisted Text Size for prompt/negative boxes
+            try:
+                _tsz = getattr(self, "text_size_str", None)
+                if _tsz is not None:
+                    _size = {"Small": 11, "Medium": 13, "Large": 15}.get(_tsz.get(), 13)
+                    self.FONT_TEXT.configure(family="Segoe UI", size=_size)
+                    self.FONT_TEXT_BOLD.configure(family="Segoe UI", size=_size, weight="bold")
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _force_quit(self):
         """Destroy the root window and force-exit the process to prevent hangs."""
@@ -4148,11 +5097,12 @@ class ComfyUIApp:
             mode = self.current_tab
             m = self.vars.get(mode, self.vars["txt2img"])
             if "width" in m and "height" in m:
-                w_val = m["width"].get()
-                h_val = m["height"].get()
+                w_val = m["width"].get() or "1024"
+                h_val = m["height"].get() or "1024"
                 m["width"].set(h_val)
                 m["height"].set(w_val)
                 self._set_status(f"Swapped dimensions: {h_val}x{w_val}")
+                self._show_toast("Dimensions Swapped", f"New resolution: {h_val}x{w_val}")
         except Exception as e:
             logging.error("Swap dimensions error: %s", e)
 
@@ -4232,7 +5182,7 @@ class ComfyUIApp:
 
         btns = [
             ("Open Output", lambda: self._open_dir(OUTPUT_DIR)),
-            ("Restart Backend", self._restart_server),
+            ("⟳ Restart (Ctrl+R)", self._restart_server),
             ("View Log", self._view_log),
             ("Save History", self._save_history_simple),
         ]
@@ -4364,10 +5314,19 @@ class ComfyUIApp:
                     m["height"].set(str(model["h"]))
                     m["steps"].set(str(model["steps"]))
                     m["cfg"].set(str(model["cfg"]))
-                self.prompt_entry.delete("1.0", "end")
-                self.prompt_entry.insert("1.0", p["prompt"])
-                self.neg_entry.delete("1.0", "end")
-                self.neg_entry.insert("1.0", p["neg"])
+                # QoL (2026-08-09): route preset text to the ACTIVE tab's entries,
+                # not always the txt2img boxes. Previously applying a preset on the
+                # img2img/upscale tab wrote into the (hidden) txt2img boxes and the
+                # user saw nothing change.
+                p_ent = self.prompt_entry
+                n_ent = self.neg_entry
+                if self.current_tab == "img2img" and hasattr(self, "img2img_prompt_entry"):
+                    p_ent = self.img2img_prompt_entry
+                    n_ent = self.img2img_neg_entry
+                p_ent.delete("1.0", "end")
+                p_ent.insert("1.0", p["prompt"])
+                n_ent.delete("1.0", "end")
+                n_ent.insert("1.0", p["neg"])
                 # Apply optional Output Format override (e.g. Game Texture preset)
                 if "format" in p and self.current_tab in self.vars and "format" in self.vars[self.current_tab]:
                     self.vars[self.current_tab]["format"].set(p["format"])
@@ -4393,6 +5352,8 @@ class ComfyUIApp:
 
     def _stage_input(self, path):
         """Video frame staged - generate on Image to Image"""
+        if isinstance(path, str):
+            path = path.strip('"\'').strip()
         ext = os.path.splitext(path)[1].lower()
         video_exts = [".mp4", ".mov", ".avi", ".mkv", ".webm"]
         if ext in video_exts:
@@ -4417,6 +5378,7 @@ class ComfyUIApp:
                 self.input_image_path = path
                 self._show_thumb(self.input_preview, img)
                 self._set_status("Image: %s" % os.path.basename(path)[:30])
+                self._show_toast("Image Staged", f"Staged {os.path.basename(path)[:25]}")
             except Exception as e:
                 self._set_status("Image load failed: %s" % str(e)[:30])
 
@@ -4425,32 +5387,73 @@ class ComfyUIApp:
             title="Select Image to Upscale",
             filetypes=[("Image", "*.png *.jpg *.jpeg *.webp *.bmp"), ("All Files", "*.*")])
         if path:
+            if isinstance(path, str):
+                path = path.strip('"\'').strip()
             try:
                 img = Image.open(path).convert("RGB")
                 self.input_image_path = path
                 self._show_thumb(self.up_preview, img)
                 self._set_status("Upscale: %s" % os.path.basename(path)[:30])
+                self._show_toast("Image Loaded", f"Loaded {os.path.basename(path)[:25]} for upscaling")
             except Exception as e:
                 self._set_status("Image load failed: %s" % str(e)[:30])
 
+    def _refresh_app_state(self):
+        """QoL: Refresh model checkpoints, reload gallery, and clear status."""
+        try:
+            self._scan_available_checkpoints()
+            self._reload_recent_preview()
+            self._set_status("App state refreshed successfully")
+            self._show_toast("Refreshed", "Model checkpoints and gallery reloaded")
+        except Exception as e:
+            self._set_status("Refresh failed: %s" % str(e)[:30])
+
     def _show_thumb(self, label, img):
         img.thumbnail((200, 150))
-        tkimg = ImageTk.PhotoImage(img)
-        label.configure(image=tkimg, text="")
-        label.image = tkimg
+        try:
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
+            label.configure(image=ctk_img, text="")
+            label.image = ctk_img
+        except Exception:
+            tkimg = ImageTk.PhotoImage(img)
+            label.configure(image=tkimg, text="")
+            label.image = tkimg
+
+
+    def _handle_app_shutdown(self):
+        """Clean application shutdown handler for window close event."""
+        self._running = False
+        try:
+            if hasattr(self, "backend_manager") and self.backend_manager:
+                self.backend_manager.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "root") and self.root:
+                self.root.destroy()
+        except Exception:
+            pass
 
 
 # ------------------------------------------------------------------
+_in_crash_hook = False
 def _crash_hook(exc_type, exc_value, exc_tb):
-    tb = traceback.format_exception(exc_type, exc_value, exc_tb)
+    global _in_crash_hook
+    if _in_crash_hook:
+        return
+    _in_crash_hook = True
     try:
-        with open(os.path.join(LOG_DIR, "ComfyUI_crash.txt"), "w") as fh:
-            fh.write("CRASH\n")
-            fh.write("\n".join(tb))
-            fh.write("\nUnhandled crash: %s" % exc_value)
-    except Exception:
-        pass
-    logging.error("Unhandled crash: %s" % exc_value)
+        tb = traceback.format_exception(exc_type, exc_value, exc_tb)
+        try:
+            with open(os.path.join(LOG_DIR, "ComfyUI_crash.txt"), "w") as fh:
+                fh.write("CRASH\n")
+                fh.write("\n".join(tb))
+                fh.write("\nUnhandled crash: %s" % exc_value)
+        except Exception:
+            pass
+        logging.error("Unhandled crash: %s" % exc_value)
+    finally:
+        _in_crash_hook = False
 
 
 def main():
@@ -4473,6 +5476,7 @@ def main():
     root.title("ComfyUIX")
     root.configure(bg="#141416")
     app = ComfyUIApp(root)
+    root.title(app._stamped_title())
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.after(100, lambda: app._paint_header())
     root.after(500, lambda: app._start_backend_threads())

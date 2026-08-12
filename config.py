@@ -98,8 +98,10 @@ TOOLTIPS = {
 }
 
 def resolve(path):
-    """Expand ~ and normalize separators to the OS-native form."""
-    return os.path.normpath(os.path.expanduser(path))
+    """Expand ~, environment variables, strip whitespace, and normalize separators to the OS-native form."""
+    if not path:
+        return ""
+    return os.path.normpath(os.path.expanduser(os.path.expandvars(str(path).strip())))
 
 
 class ConfigManager:
@@ -123,11 +125,17 @@ class ConfigManager:
                     data = json.load(f)
                 self.settings.update(data)
                 global OUTPUT_DIR
-                if "output_dir" in data:
+                if "output_dir" in data and data["output_dir"]:
                     OUTPUT_DIR = resolve(data["output_dir"])
                     self.settings["output_dir"] = OUTPUT_DIR
             except Exception as e:
                 logging.error("Failed to load config.json: %s", e)
+                try:
+                    corrupt_bak = self.config_path + ".corrupt"
+                    if not os.path.exists(corrupt_bak) and os.path.exists(self.config_path):
+                        os.replace(self.config_path, corrupt_bak)
+                except Exception:
+                    pass
 
     def save(self):
         try:

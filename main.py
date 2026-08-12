@@ -22,7 +22,8 @@ import tkinter.font as tkfont
 import requests
 from config import ConfigManager
 try:
-    from PIL import Image, ImageTk
+    from PIL import Image, ImageTk, ImageFile
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
 except Exception:
     Image = None
     ImageTk = None
@@ -1065,6 +1066,20 @@ class ComfyUIApp:
         try:
             factor = float(v.replace("%", "")) / 100.0
             self._current_scaling_val = v
+            # PRESERVED_LEGACY: Prune destroyed widgets from ScalingTracker to prevent TclError crash on UI scaling change
+            try:
+                from customtkinter.windows.widgets.scaling.scaling_tracker import ScalingTracker
+                for win in list(ScalingTracker.window_widgets_dict.keys()):
+                    valid = []
+                    for w in ScalingTracker.window_widgets_dict.get(win, []):
+                        try:
+                            if hasattr(w, "winfo_exists") and w.winfo_exists():
+                                valid.append(w)
+                        except Exception:
+                            pass
+                    ScalingTracker.window_widgets_dict[win] = valid
+            except Exception as e:
+                logging.debug("ScalingTracker prune error: %s", e)
             ctk.set_widget_scaling(factor)
             self._set_status("UI Scaled to %s" % v)
         except Exception as e:
@@ -2362,8 +2377,10 @@ class ComfyUIApp:
         }
         self.history.append(entry)
         try:
-            with open(HISTORY_FILE, "w") as fh:
+            tmp_hist = HISTORY_FILE + ".tmp"
+            with open(tmp_hist, "w", encoding="utf-8") as fh:
                 json.dump(self.history, fh, indent=2)
+            os.replace(tmp_hist, HISTORY_FILE)
         except Exception as e:
             self._set_status("History save error: %s" % str(e)[:20])
 
@@ -2482,19 +2499,48 @@ class ComfyUIApp:
             self.header.configure(image=photo)
         except Exception:
             pass
-        if self._running:
-            self.root.after(50, self._animate_gradient)
+    def _show_toast(self, title, message, error=False):
+        """Show a transient toast notification (top-right of window)."""
+        try:
+            import tkinter as tk
+            toast = ctk.CTkToplevel(self.root)
+            toast.overrideredirect(True)
+            toast.attributes("-topmost", True)
+            toast.configure(fg_color="#CC3333" if error else BG_CARD)
+            # Position top-right
+            self.root.update_idletasks()
+            x = self.root.winfo_rootx() + self.root.winfo_width() - 340
+            y = self.root.winfo_rooty() + 8
+            toast.geometry("+%d+%d" % (x, y))
+            ctk.CTkLabel(toast, text=title, font=ctk.CTkFont(size=12, weight="bold"),
+                         text_color="#FFFFFF" if error else TEXT).pack(padx=14, pady=(10, 2))
+            ctk.CTkLabel(toast, text=message, font=ctk.CTkFont(size=10),
+                         text_color="#FFE0E0" if error else TEXT_MUTED,
+                         wraplength=300, justify="left").pack(padx=14, pady=(0, 10))
+            toast.after(4000, toast.destroy)
+            toasts = [t for t in getattr(self, "_toasts", []) if hasattr(t, "winfo_exists") and t.winfo_exists()]
+            toasts.append(toast)
+            if len(toasts) > 5:
+                oldest = toasts.pop(0)
+                try:
+                    oldest.destroy()
+                except Exception:
+                    pass
+            self._toasts = toasts
+        except Exception:
+            pass
 
     def _swap_dimensions(self):
         try:
             mode = self.current_tab
             m = self.vars.get(mode, self.vars["txt2img"])
             if "width" in m and "height" in m:
-                w_val = m["width"].get()
-                h_val = m["height"].get()
+                w_val = m["width"].get() or "1024"
+                h_val = m["height"].get() or "1024"
                 m["width"].set(h_val)
                 m["height"].set(w_val)
                 self._set_status(f"Swapped dimensions: {h_val}x{w_val}")
+                self._show_toast("Dimensions Swapped", f"New resolution: {h_val}x{w_val}")
         except Exception as e:
             logging.error("Swap dimensions error: %s", e)
 
@@ -2745,6 +2791,19 @@ class ComfyUIApp:
             except Exception as e:
                 self._set_status("Image load failed: %s" % str(e)[:30])
 
+    def _fmt_elapsed(self, seconds):
+        """Format elapsed seconds as [MM:SS] or [H:MM:SS]."""
+        try:
+            import math
+            s = max(0, int(seconds)) if seconds is not None and not math.isnan(float(seconds)) else 0
+        except Exception:
+            s = 0
+        h, m = divmod(s, 3600)
+        m, s = divmod(m, 60)
+        if h:
+            return "%d:%02d:%02d" % (h, m, s)
+        return "%02d:%02d" % (m, s)
+
     def _pick_upscale(self):
         path = filedialog.askopenfilename(
             title="Select Image to Upscale",
@@ -2760,22 +2819,50 @@ class ComfyUIApp:
 
     def _show_thumb(self, label, img):
         img.thumbnail((200, 150))
-        tkimg = ImageTk.PhotoImage(img)
-        label.configure(image=tkimg, text="")
-        label.image = tkimg
+        try:
+            ctk_img = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
+            label.configure(image=ctk_img, text="")
+            label.image = ctk_img
+        except Exception:
+            tkimg = ImageTk.PhotoImage(img)
+            label.configure(image=tkimg, text="")
+            label.image = tkimg
+
+
+    def _handle_app_shutdown(self):
+        """Clean application shutdown handler for window close event."""
+        self._running = False
+        try:
+            if hasattr(self, "backend_manager") and self.backend_manager:
+                self.backend_manager.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "root") and self.root:
+                self.root.destroy()
+        except Exception:
+            pass
 
 
 # ------------------------------------------------------------------
+_in_crash_hook = False
 def _crash_hook(exc_type, exc_value, exc_tb):
-    tb = traceback.format_exception(exc_type, exc_value, exc_tb)
+    global _in_crash_hook
+    if _in_crash_hook:
+        return
+    _in_crash_hook = True
     try:
-        with open(os.path.join(LOG_DIR, "ComfyUI_crash.txt"), "w") as fh:
-            fh.write("CRASH\n")
-            fh.write("\n".join(tb))
-            fh.write("\nUnhandled crash: %s" % exc_value)
-    except Exception:
-        pass
-    logging.error("Unhandled crash: %s" % exc_value)
+        tb = traceback.format_exception(exc_type, exc_value, exc_tb)
+        try:
+            with open(os.path.join(LOG_DIR, "ComfyUI_crash.txt"), "w") as fh:
+                fh.write("CRASH\n")
+                fh.write("\n".join(tb))
+                fh.write("\nUnhandled crash: %s" % exc_value)
+        except Exception:
+            pass
+        logging.error("Unhandled crash: %s" % exc_value)
+    finally:
+        _in_crash_hook = False
 
 
 def main():

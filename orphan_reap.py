@@ -34,7 +34,8 @@ SENTINEL = os.path.join(os.getenv("LOCALAPPDATA", os.path.normpath(os.path.expan
 
 def _run(cmd):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0).stdout
     except Exception:
         return ""
 
@@ -67,7 +68,8 @@ def parent_pid_of(pid):
         out = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
              f"(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").ParentProcessId"],
-            capture_output=True, text=True, timeout=10).stdout
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0).stdout
         out = out.strip()
         if out and out.isdigit():
             return int(out)
@@ -78,12 +80,26 @@ def parent_pid_of(pid):
 def pid_alive(pid):
     if not pid:
         return False
-    # Use PowerShell (reliable on Win11; tasklist substring match is fragile).
+    # PRESERVED_LEGACY: Fast Win32 ctypes check (0 subprocesses, <1ms)
+    if os.name == "nt":
+        try:
+            import ctypes
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(pid))
+            if h:
+                code = ctypes.c_ulong()
+                ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+                ctypes.windll.kernel32.CloseHandle(h)
+                return code.value == 259  # STILL_ACTIVE
+            return False
+        except Exception:
+            pass
+    # Use PowerShell (reliable fallback on Win11)
     try:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command",
              f"if (Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\") {{ \"YES\" }} else {{ \"NO\" }}"],
-            capture_output=True, text=True, timeout=10).stdout.strip()
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0).stdout.strip()
         return out == "YES"
     except Exception:
         pass

@@ -83,7 +83,7 @@ def make_acrylic(w, h, root=None, mode=None):
             frost = base
         tint = Image.new("RGBA", (w, h), TINT)
 
-    out = Image.alpha_composite(frost, base)
+    out = Image.alpha_composite(base, frost)
     out = Image.alpha_composite(out, tint)
     return out
 

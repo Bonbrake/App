@@ -114,6 +114,62 @@ class AutoHideScrollFrame(ctk.CTkFrame):
         except Exception:
             pass
 
+class ToolTip:
+    """Hover tooltip popup manager for controls and inputs."""
+    def __init__(self, widget, text=None, title=None, delay=400, enabled_var=None, description=None):
+        self.widget = widget
+        self.text = text or description or ""
+        self.title = title
+        self.delay = delay
+        self.enabled_var = enabled_var
+        self.tip_window = None
+        self.id = None
+        widget.bind("<Enter>", self.schedule)
+        widget.bind("<Leave>", self.hide)
+
+    def schedule(self, event=None):
+        if self.enabled_var and self.enabled_var.get() == "0":
+            return
+        self.unschedule()
+        self.id = self.widget.after(self.delay, self.show)
+
+    def unschedule(self, event=None):
+        if self.id:
+            try:
+                self.widget.after_cancel(self.id)
+            except Exception:
+                pass
+            self.id = None
+
+    def show(self):
+        if self.tip_window or not self.text:
+            return
+        try:
+            if not self.widget.winfo_exists():
+                return
+            x = self.widget.winfo_rootx() + 20
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+            self.tip_window = tw = ctk.CTkToplevel(self.widget)
+            tw.wm_overrideredirect(True)
+            tw.geometry(f"+{x}+{y}")
+            tw.attributes("-topmost", True)
+            frame = ctk.CTkFrame(tw, fg_color=BG_CARD_ALT, border_color=BORDER, border_width=1, corner_radius=6)
+            frame.pack(fill="both", expand=True)
+            if self.title:
+                ctk.CTkLabel(frame, text=self.title, font=ctk.CTkFont(size=11, weight="bold"), text_color=TEXT).pack(anchor="w", padx=8, pady=(4, 0))
+            ctk.CTkLabel(frame, text=self.text, font=ctk.CTkFont(size=10), text_color=TEXT_MUTED, wraplength=220, justify="left").pack(anchor="w", padx=8, pady=(2, 4))
+        except Exception:
+            self.tip_window = None
+
+    def hide(self, event=None):
+        self.unschedule()
+        if self.tip_window:
+            try:
+                self.tip_window.destroy()
+            except Exception:
+                pass
+            self.tip_window = None
+
 def enable_auto_hide_scrollbar(scroll_frame):
     """Compatibility helper for standard CTkScrollableFrame instances."""
     try:
