@@ -23,3 +23,6 @@ _last_good/
 *.ckpt
 *.gguf
 *.pth
+# Generated filler blob (build_exe.py writes os.urandom(125MB) to inflate bundle) — never commit
+assets/bundle_payload.bin
+ComfyUIX/_internal/assets/bundle_payload.bin
