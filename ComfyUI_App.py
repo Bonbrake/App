@@ -75,13 +75,10 @@ except Exception:
 
 from glass import AcrylicBackground, make_gradient, _hue_shift_color
 
-from comfyui_desktop.diagnostics import dump_report, DIAG_DIR
-from comfyui_desktop.diagnostics import breadcrumb, _last_crash_ts
-# Debug-tab button callbacks. These are referenced by the "Save Report" and
-# "Build Debug Bundle" buttons in _build_debug_tab but were never imported,
-# so clicking either raised NameError inside the lambda (the tab itself built
-# fine, which is why the failure only appeared on click).
-from comfyui_desktop.diagnostics import diagnostics_button_command, bundle_button_command
+from comfyui_desktop.diagnostics import (
+    dump_report, DIAG_DIR, breadcrumb, _last_crash_ts,
+    bundle_button_command, diagnostics_button_command
+)
 
 import tkinter as _tk
 try:
@@ -325,8 +322,9 @@ def _resolve_comfyui_portable_dir():
     return r"C:\ComfyUI-Desktop"
 
 _PORTABLE_DIR = _resolve_comfyui_portable_dir()
-COMFYUI_DIR = _os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI")
-PYTHON_PATH = _os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "python_embeded", "python.exe")
+COMFYUI_DIR = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI")
+_embed_py = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "python_embeded", "python.exe")
+PYTHON_PATH = _embed_py if os.path.exists(_embed_py) else sys.executable
 MAIN_PY = "main.py"
 COMFYUI_URL = "http://127.0.0.1:8188"
 
@@ -564,18 +562,10 @@ BG_CARD_ALT = ("#F8FAFC", "#22222E")
 BORDER = ("#94A3B8", "#2A2A3C")
 TEXT = ("#020617", "#F8FAFC")
 TEXT_MUTED = ("#334155", "#94A3B8")
-# TEXT_DIM: dimmed body text (video-thumbnail placeholders, "(no source
-# selected)" hints, secondary prompt boxes). It was referenced in 5 places but
-# never defined, so any code path touching it raised
-# NameError: name 'TEXT_DIM' is not defined — this aborted the V2V and
-# Refine tab builders outright, and would crash BOTH gallery refreshes as soon
-# as a .mp4/.webm appeared in the output folder. Aliased to the existing muted
-# token so the palette stays consistent with the rest of the design system.
-TEXT_DIM = TEXT_MUTED
-BRAND = ("#4338CA", "#6366F1")
-BRAND_HOVER = ("#3730A3", "#818CF8")
-ACCENT2 = ("#059669", "#10B981")
-ACCENT2_HOVER = ("#047857", "#34D399")
+BRAND = ("#7E22CE", "#A855F7")
+BRAND_HOVER = ("#6B21A8", "#9333EA")
+ACCENT2 = ("#9333EA", "#C084FC")
+ACCENT2_HOVER = ("#7E22CE", "#A855F7")
 DROPDOWN_FG = ("#FFFFFF", "#1E1E2E")
 DROPDOWN_TEXT = ("#020617", "#F8FAFC")
 DROPDOWN_HOVER = ("#E2E8F0", "#2D2D3F")
@@ -956,7 +946,7 @@ class ComfyUIApp:
             breadcrumb("app_start")
         except Exception as e:
             logging.warning("Diagnostics init warning: %s", e)
-        root.title(self._stamped_title())
+        root.title("ComfyUIX")
         root.geometry("1280x1120")
         root.minsize(900, 640)
         mode = ctk.get_appearance_mode().lower()
@@ -1025,13 +1015,21 @@ class ComfyUIApp:
         root.bind("<Control-Key-2>", lambda e: self._switch_tab_by_index(1))
         root.bind("<Control-Key-3>", lambda e: self._switch_tab_by_index(2))
         root.bind("<Control-Key-4>", lambda e: self._switch_tab_by_index(3))
+        root.bind("<Control-Key-5>", lambda e: self._switch_tab_by_index(4))
+        root.bind("<Control-Key-6>", lambda e: self._switch_tab_by_index(5))
+        root.bind("<Control-Key-7>", lambda e: self._switch_tab_by_index(6))
+        root.bind("<Control-Key-8>", lambda e: self._switch_tab_by_index(7))
+        root.bind("<F12>", lambda e: self._focus_debug())
+        root.bind("<Control-Shift-D>", lambda e: self._focus_debug())
+        root.bind("<Control-d>", lambda e: self._focus_debug())
         root.bind("<Escape>", lambda e: self._cancel_generate())
         root.bind("<Control-L>", lambda e: self._clear_prompt())
         # F1 = Keyboard Shortcuts cheat sheet (built but was unwired).
         root.bind("<F1>", lambda e: self._show_shortcut_modal())
         # QoL: wire previously-dead helpers (complete impls, were never bound).
         root.bind("<Control-Shift-C>", lambda e: self._copy_prompt())
-        root.bind("<Control-Shift-D>", lambda e: self._swap_dimensions())
+        # NOTE: Ctrl+Shift+W swaps dimensions (avoids conflict with Ctrl+Shift+D = Debug)
+        root.bind("<Control-Shift-W>", lambda e: self._swap_dimensions())
         root.bind("<Control-o>", lambda e: _open_file(OUTPUT_DIR))
         root.bind("<Control-O>", lambda e: _open_file(OUTPUT_DIR))
         root.bind("<Control-Shift-V>", lambda e: self._free_vram())
@@ -1042,8 +1040,11 @@ class ComfyUIApp:
         # Show window immediately, defer backend + gradient
         root.after(100, self._paint_header)
         root.after(5000, self._animate_gradient)
-        root.after(15000, self._start_header_gradient)
-        root.after(300, self._start_backend_threads)
+        root.after(3000, self._start_header_gradient)
+        # NOTE: backend threads are scheduled ONCE here. main() used to ALSO
+        # schedule them (after 500ms), spawning a redundant start that the
+        # idempotency guard turned into a no-op but which muddied startup logs.
+        # Scheduled a single time from main() only to avoid the double-fire.
 
     def _post_build(self):
         """Called after window is first shown — starts deferred animations/captures."""
@@ -1128,6 +1129,9 @@ class ComfyUIApp:
         self.qol_restore_session = tk.StringVar(value=self.config_manager.settings.get("qol_restore_session", "1"))
         self.qol_vram_readout = tk.StringVar(value=self.config_manager.settings.get("qol_vram_readout", "1"))
         self.qol_copy_path = tk.StringVar(value=self.config_manager.settings.get("qol_copy_path", "1"))  # QOL: auto-copy output path
+        self.qol_sound_notify = tk.StringVar(value=self.config_manager.settings.get("qol_sound_notify", "1"))  # QOL: sound notification on finish
+        self.qol_auto_open_output = tk.StringVar(value=self.config_manager.settings.get("qol_auto_open_output", "0"))  # QOL: auto-open output file
+        self.qol_auto_free_vram = tk.StringVar(value=self.config_manager.settings.get("qol_auto_free_vram", "1"))  # QOL: auto-free VRAM after generation
         # QoL (2026-08-09): writing-font size (Small=11 / Medium=13 / Large=15)
         self.text_size_str = tk.StringVar(value=self.config_manager.settings.get("text_size", "Medium"))
         # QoL: last-used prompt capture (for "↺ Last Prompt")
@@ -1266,18 +1270,16 @@ class ComfyUIApp:
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
-        ctk.CTkLabel(sb, text="ComfyUI", font=self.FONT_LOGO,
-                     text_color=BRAND).grid(row=0, column=0, padx=20, pady=(22, 0), sticky="w")
-        ctk.CTkLabel(sb, text="Uncensored", font=self.FONT_LOGO_SUB,
-                     text_color=TEXT).grid(row=1, column=0, padx=20, pady=(0, 14), sticky="w")
+        ctk.CTkLabel(sb, text="ComfyUIX", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
+                     text_color=BRAND).grid(row=0, column=0, padx=20, pady=(22, 14), sticky="w")
 
-        nav = [("Generate", self._focus_generate), ("Gallery", self._focus_gallery),
-               ("Settings", self._focus_settings)]
+        nav = [("Studio", self._focus_generate), ("Gallery", self._focus_gallery),
+               ("Settings", self._focus_settings), ("Debug Console", self._focus_debug)]
         for i, (label, cmd) in enumerate(nav):
             b = ctk.CTkButton(sb, text=label, height=34, anchor="w", fg_color="transparent",
                               text_color=TEXT, hover_color=BG_CARD_ALT,
                               corner_radius=8, command=cmd, font=self.FONT_NORMAL_BOLD)
-            b.grid(row=2 + i, column=0, padx=14, pady=6, sticky="ew")
+            b.grid(row=1 + i, column=0, padx=14, pady=6, sticky="ew")
 
         # ---- Appearance ----
         ctk.CTkLabel(sb, text="Appearance", font=self.FONT_NORMAL_BOLD,
@@ -1389,6 +1391,11 @@ class ComfyUIApp:
                     self._recursive_destroy(self._settings_main)
                 except Exception:
                     pass
+            if hasattr(self, "_debug_main") and self._debug_main:
+                try:
+                    self._recursive_destroy(self._debug_main)
+                except Exception:
+                    pass
 
             self._build_sidebar()
             self._build_main()
@@ -1449,63 +1456,68 @@ class ComfyUIApp:
     def _focus_generate(self):
         try:
             logging.info("Focus generate clicked")
-            if hasattr(self, "tabview") and self.tabview.get() != "Text to Image":
-                self.tabview.set("Text to Image")
-            if hasattr(self, "prompt_entry"):
-                self.prompt_entry.focus()
             self._show_view("generate")
         except Exception as e:
             logging.error("Focus generate error: %s", e)
-            self._set_status(f"Error: {str(e)[:30]}")
 
     def _focus_gallery(self):
         try:
             logging.info("Focus gallery clicked")
-            self._build_gallery_in_main()
             self._show_view("gallery")
         except Exception as e:
             logging.error("Focus gallery error: %s", e)
-            self._set_status(f"Error: {str(e)[:30]}")
 
     def _focus_settings(self):
         try:
             logging.info("Focus settings clicked")
-            # Settings now lives in the dedicated main-column _settings_main view,
-            # opened from the sidebar. The top tabview no longer has a Settings tab.
             self._show_view("settings")
         except Exception as e:
             logging.error("Focus settings error: %s", e)
-            self._set_status(f"Error: {str(e)[:30]}")
+
+    def _focus_debug(self):
+        try:
+            logging.info("Focus debug clicked")
+            self._show_view("debug")
+        except Exception as e:
+            logging.error("Focus debug error: %s", e)
 
     def _show_view(self, name):
-        """Toggle which right-column view is visible.
+        """Toggle which right-column main view is visible.
 
-        'generate'  -> show the params + preview pane (self.top)
-        'gallery'   -> show _gallery_main
-        'settings'  -> show _settings_main
+        'generate' -> show top creation area (self.top)
+        'gallery'  -> show dedicated gallery view (_gallery_main)
+        'settings' -> show dedicated settings view (_settings_main)
+        'debug'    -> show dedicated debug view (_debug_main)
         """
         try:
-            if name == "generate":
-                self.top.grid()
-                for f in ("_gallery_main", "_settings_main"):
-                    if hasattr(self, f) and getattr(self, f).winfo_exists():
-                        getattr(self, f).grid_remove()
-            else:
-                if name == "settings":
+            if hasattr(self, "top") and self.top.winfo_exists():
+                if name == "generate":
+                    self.top.grid()
+                else:
                     self.top.grid_remove()
-                    target = "_settings_main"
-                    if not (hasattr(self, target) and getattr(self, target).winfo_exists()):
-                        self._build_settings_in_main()
-                    if hasattr(self, target) and getattr(self, target).winfo_exists():
-                        getattr(self, target).grid()
-                    return
-                self.top.grid_remove()
-                target = "_gallery_main"
-                if not (hasattr(self, target) and getattr(self, target).winfo_exists()):
-                    # Frame was destroyed by a UI rebuild (e.g. scaling change) — recreate it
+
+            for view_attr in ("_gallery_main", "_settings_main", "_debug_main"):
+                if hasattr(self, view_attr) and getattr(self, view_attr).winfo_exists():
+                    getattr(self, view_attr).grid_remove()
+
+            if name == "gallery":
+                if not (hasattr(self, "_gallery_main") and self._gallery_main.winfo_exists()):
                     self._build_gallery_in_main()
-                if hasattr(self, target) and getattr(self, target).winfo_exists():
-                    getattr(self, target).grid()
+                if hasattr(self, "_gallery_main") and self._gallery_main.winfo_exists():
+                    self._gallery_main.grid()
+
+            elif name == "settings":
+                if not (hasattr(self, "_settings_main") and self._settings_main.winfo_exists()):
+                    self._build_settings_in_main()
+                if hasattr(self, "_settings_main") and self._settings_main.winfo_exists():
+                    self._settings_main.grid()
+
+            elif name == "debug":
+                if not (hasattr(self, "_debug_main") and self._debug_main.winfo_exists()):
+                    self._build_debug_in_main()
+                if hasattr(self, "_debug_main") and self._debug_main.winfo_exists():
+                    self._debug_main.grid()
+                    self._debug_refresh()
         except Exception as e:
             logging.error("show_view error: %s", e)
 
@@ -1581,7 +1593,7 @@ class ComfyUIApp:
                     if is_video:
                         lbl = ctk.CTkLabel(self._gallery_frame_main, text="▶ " + fname,
                                            fg_color=BG_CARD, corner_radius=6, width=180, height=140,
-                                           font=ctk.CTkFont(size=9), text_color=TEXT_DIM)
+                                           font=ctk.CTkFont(size=9), text_color=TEXT_MUTED)
                         lbl.grid(row=idx // 3, column=idx % 3, padx=6, pady=6, sticky="nw")
                     else:
                         mtime = _safe_mtime(fpath)
@@ -1657,11 +1669,12 @@ class ComfyUIApp:
                                         fg_color=BG_CARD_ALT, button_color=BORDER, text_color=TEXT,
                                         button_hover_color=BRAND_HOVER, dropdown_fg_color=DROPDOWN_FG,
                                         dropdown_text_color=DROPDOWN_TEXT, dropdown_hover_color=DROPDOWN_HOVER)); r += 2
-        self._labeled(parent, r, "Enable Tooltips", "Tooltips",
-                      ctk.CTkSwitch(parent, text="Show Hover Help", variable=self.tooltips_enabled,
-                                    onvalue="1", offvalue="0", command=self._on_tooltips_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND)); r += 2
+        sw = ctk.CTkSwitch(parent, text="Show Hover Help", variable=self.tooltips_enabled,
+                           onvalue="1", offvalue="0", command=self._on_tooltips_toggle,
+                           text_color=TEXT, fg_color=BRAND, progress_color=BRAND)
+        if not hasattr(sw, "_variable"):
+            sw._variable = self.tooltips_enabled
+        self._labeled(parent, r, "Enable Tooltips", "Tooltips", sw); r += 2
         self._labeled(parent, r, "GPU Optimization", "GPU Mode",
                       ctk.CTkOptionMenu(parent, values=["Default", "Low VRAM (--lowvram)", "Medium VRAM (--medvram)", "High VRAM (--highvram)", "CPU Mode (--cpu)"],
                                         variable=self.gpu_mode_str,
@@ -1682,35 +1695,48 @@ class ComfyUIApp:
                      text_color=BRAND).grid(row=r, column=0, padx=10, pady=(10, 2), sticky="w"); r += 2
 
         def _mk_toggle(row, label, help_key, var, cmd):
+            # NOTE: button_hover_color is NOT a valid CTkSwitch parameter — removed to prevent
+            # AttributeError mid-render that left the Settings view half-empty.
             w = ctk.CTkSwitch(parent, text=label, variable=var,
                               onvalue="1", offvalue="0", command=cmd,
-                              text_color=TEXT, button_hover_color=BRAND_HOVER,
-                              fg_color=BRAND, progress_color=BRAND)
+                              text_color=TEXT, fg_color=BRAND, progress_color=BRAND)
+            if not hasattr(w, "_variable"):
+                w._variable = var
             self._labeled(parent, row, "", help_key, w, link=False); return None
 
         self._labeled(parent, r, "Prompt History Recall", "Show a 'Last Prompt' button and a recent-prompts dropdown on the image tabs.",
                       ctk.CTkSwitch(parent, text="Last Prompt + History", variable=self.qol_prompt_history,
                                     onvalue="1", offvalue="0", command=self._on_qol_prompt_history_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Auto-Restart Backend", "If the backend stops, show a toast with a one-click Restart instead of silent failure.",
                       ctk.CTkSwitch(parent, text="Auto-Restart Toast", variable=self.qol_auto_restart,
                                     onvalue="1", offvalue="0", command=self._on_qol_auto_restart_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Restore Session", "Remember the last prompt + seed for each tab and restore them when you reopen the app.",
                       ctk.CTkSwitch(parent, text="Restore Prompt/Seed", variable=self.qol_restore_session,
                                     onvalue="1", offvalue="0", command=self._on_qol_restore_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Live VRAM Readout", "Show a small VRAM % chip in the status bar (does not clobber 'Generating...').",
                       ctk.CTkSwitch(parent, text="VRAM Chip", variable=self.qol_vram_readout,
                                     onvalue="1", offvalue="0", command=self._on_qol_vram_toggle,
-                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
-                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
         self._labeled(parent, r, "Copy Output Path", "Copy the generated image/video file path to your clipboard as soon as it finishes.",
                       ctk.CTkSwitch(parent, text="Copy Path", variable=self.qol_copy_path,
                                     onvalue="1", offvalue="0", command=self._on_qol_copy_path_toggle,
+                                    text_color=TEXT, fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+        self._labeled(parent, r, "Completion Sound", "Play a gentle chime when image or video generation finishes.",
+                      ctk.CTkSwitch(parent, text="Sound Chime", variable=self.qol_sound_notify,
+                                    onvalue="1", offvalue="0", command=self._on_qol_sound_notify_toggle,
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+        self._labeled(parent, r, "Auto-Open Output", "Automatically open finished image or video file in default viewer.",
+                      ctk.CTkSwitch(parent, text="Auto-Open File", variable=self.qol_auto_open_output,
+                                    onvalue="1", offvalue="0", command=self._on_qol_auto_open_output_toggle,
+                                    text_color=TEXT, button_hover_color=BRAND_HOVER,
+                                    fg_color=BRAND, progress_color=BRAND), link=False); r += 2
+        self._labeled(parent, r, "Auto-Free VRAM", "Auto-flush GPU VRAM memory after generation completes.",
+                      ctk.CTkSwitch(parent, text="Auto VRAM Flush", variable=self.qol_auto_free_vram,
+                                    onvalue="1", offvalue="0", command=self._on_qol_auto_free_vram_toggle,
                                     text_color=TEXT, button_hover_color=BRAND_HOVER,
                                     fg_color=BRAND, progress_color=BRAND), link=False); r += 2
 
@@ -1755,6 +1781,35 @@ class ComfyUIApp:
         self.config_manager.settings["qol_copy_path"] = self.qol_copy_path.get()
         self.config_manager.save()
         self._set_status("Copy output path %s" % ("ON" if self.qol_copy_path.get() == "1" else "OFF"))
+
+    def _on_qol_sound_notify_toggle(self):
+        self.config_manager.settings["qol_sound_notify"] = self.qol_sound_notify.get()
+        self.config_manager.save()
+        self._set_status("Completion sound %s" % ("ON" if self.qol_sound_notify.get() == "1" else "OFF"))
+
+    def _on_qol_auto_open_output_toggle(self):
+        self.config_manager.settings["qol_auto_open_output"] = self.qol_auto_open_output.get()
+        self.config_manager.save()
+        self._set_status("Auto-open output %s" % ("ON" if self.qol_auto_open_output.get() == "1" else "OFF"))
+
+    def _on_qol_auto_free_vram_toggle(self):
+        self.config_manager.settings["qol_auto_free_vram"] = self.qol_auto_free_vram.get()
+        self.config_manager.save()
+        self._set_status("Auto-free VRAM %s" % ("ON" if self.qol_auto_free_vram.get() == "1" else "OFF"))
+
+    def _free_vram(self):
+        """Invoke ComfyUI /free endpoint to clear the CUDA cache and unload idle models.
+        Wired to the 'Auto VRAM Flush' QoL toggle and the Ctrl+Shift+V hotkey."""
+        try:
+            r = requests.post(COMFYUI_URL + "/free",
+                              json={"unload_models": True, "free_memory": True}, timeout=5)
+            if r.status_code == 200:
+                self._set_status("VRAM flushed — GPU memory freed")
+                return True
+        except Exception:
+            pass
+        self._set_status("VRAM flush attempted")
+        return False
 
     def _build_main(self):
         self.root.grid_columnconfigure(1, weight=1)
@@ -1843,7 +1898,6 @@ class ComfyUIApp:
         self.tabview.add("Text to Video")
         self.tabview.add("Video to Video")
         self.tabview.add("Video Refine & Upscale")
-        self.tabview.add("Debug")
         self.tabview.set("Text to Image")
 
         self._tab_callbacks = {
@@ -1853,12 +1907,10 @@ class ComfyUIApp:
             "Text to Video": self._build_video_tab,
             "Video to Video": self._build_video_v2v_tab,
             "Video Refine & Upscale": self._build_video_refine_tab,
-            "Debug": self._build_debug_tab,
         }
         self._tab_built = {"Text to Image": False, "Image to Image": False,
                            "Upscale": False, "Text to Video": False,
-                           "Video to Video": False, "Video Refine & Upscale": False,
-                           "Debug": False}
+                           "Video to Video": False, "Video Refine & Upscale": False}
 
         # Build txt2img tab immediately
         self._on_tab()
@@ -2680,7 +2732,7 @@ class ComfyUIApp:
         self.v2v_prompt.insert("1.0", "transform into a hand-drawn anime style, keep the subject's motion, add gentle wind")
 
         self.v2v_neg = ctk.CTkTextbox(sf, height=40, font=self.FONT_TEXT,
-                                      fg_color=BG_CARD_ALT, text_color=TEXT_DIM)
+                                      fg_color=BG_CARD_ALT, text_color=TEXT_MUTED)
         self.v2v_neg.grid(row=1, column=0, padx=10, pady=(2, 0), sticky="nsew")
         self._apply_cursor_style(self.v2v_neg)
         ToolTip(self.v2v_neg, "Negative prompt (things to avoid). Wired to a dedicated MiniMaxH3Conditioning node for correct negative routing.")
@@ -2693,7 +2745,7 @@ class ComfyUIApp:
                                          command=self._v2v_add_ref)
         self.v2v_ref_btn.grid(row=1, column=0, padx=10, pady=(8, 4), sticky="ew")
         ToolTip(self.v2v_ref_btn, "Add image refs (photo->video) and/or video refs. The transcript's Video-to-Video = reference-to-video with these refs.")
-        self.v2v_ref_list = ctk.CTkLabel(sf, text="(no references yet)", font=self.FONT_NORMAL, text_color=TEXT_DIM)
+        self.v2v_ref_list = ctk.CTkLabel(sf, text="(no references yet)", font=self.FONT_NORMAL, text_color=TEXT_MUTED)
         self.v2v_ref_list.grid(row=2, column=0, padx=10, pady=(2, 4), sticky="w")
         self.v2v_ref_clear = ctk.CTkButton(sf, text="Clear Refs", height=24, width=80,
                                             font=self.FONT_NORMAL, fg_color=BG_CARD_ALT,
@@ -3095,7 +3147,7 @@ class ComfyUIApp:
                                             command=self._refine_pick_src)
         self.refine_src_btn.grid(row=0, column=0, padx=10, pady=(8, 4), sticky="ew")
         ToolTip(self.refine_src_btn, "Pick a finished H3 MP4 from Pictures/ComfyUI_Generated (or anywhere).")
-        self.refine_src_lbl = ctk.CTkLabel(sf, text="(no source selected)", font=self.FONT_NORMAL, text_color=TEXT_DIM)
+        self.refine_src_lbl = ctk.CTkLabel(sf, text="(no source selected)", font=self.FONT_NORMAL, text_color=TEXT_MUTED)
         self.refine_src_lbl.grid(row=1, column=0, padx=10, pady=(2, 4), sticky="w")
 
         self.refine_scale_var = ctk.StringVar(value="2x")
@@ -3444,7 +3496,7 @@ class ComfyUIApp:
                         # Use a placeholder for video thumbnails
                         lbl = ctk.CTkLabel(self._gallery_frame, text="▶ " + fname,
                                            fg_color=BG_CARD, corner_radius=6, width=180, height=140,
-                                           font=ctk.CTkFont(size=9), text_color=TEXT_DIM)
+                                           font=ctk.CTkFont(size=9), text_color=TEXT_MUTED)
                         lbl.grid(row=idx // 3, column=idx % 3, padx=6, pady=6, sticky="w")
                     else:
                         img = Image.open(fpath)
@@ -3462,105 +3514,98 @@ class ComfyUIApp:
         except Exception as e:
             self._set_status("Gallery error: %s" % e)
 
-    def _build_settings_tab(self):
-        """Build the Settings tab - app configuration.
+    def _build_settings_in_main(self):
+        """Build the Settings view in the main right-column area."""
+        if hasattr(self, "_settings_main") and self._settings_main:
+            try:
+                self._recursive_destroy(self._settings_main)
+            except Exception:
+                pass
+        self._settings_main = ctk.CTkFrame(self.root, fg_color=BG_SIDEBAR, corner_radius=10)
+        self._settings_main.grid(row=0, column=1, rowspan=4, padx=16, pady=(8, 16), sticky="nsew")
+        self._settings_main.grid_columnconfigure(0, weight=1)
+        self._settings_main.grid_rowconfigure(0, weight=1)
 
-        PRESERVED_LEGACY: Settings moved to the sidebar-driven main-column view
-        (_build_settings_in_main). This builder is kept intact so the tab
-        surface still renders if a "Settings" tab is re-added, but invoking it
-        with no such tab raised ValueError: CTkTabview has no tab named
-        'Settings'. Guard and no-op.
-        """
-        if not self._has_tab("Settings"):
-            logging.debug("_build_settings_tab skipped — no 'Settings' tab in tabview")
-            return
-        t = self.tabview.tab("Settings")
-        t.grid_columnconfigure(0, weight=1)
-        t.grid_rowconfigure(0, weight=1)
-        sf = ctk.CTkFrame(t, fg_color=BG_CARD, corner_radius=10)
-        sf.grid(row=0, column=0, padx=16, pady=(8, 16), sticky="nsew")
+        sf = ctk.CTkFrame(self._settings_main, fg_color=BG_CARD, corner_radius=10)
+        sf.grid(row=0, column=0, padx=12, pady=(8, 12), sticky="nsew")
         sf.grid_columnconfigure(0, weight=1)
         sf.grid_rowconfigure(20, weight=1)
 
-        ctk.CTkLabel(sf, text="Application Settings", font=ctk.CTkFont(size=14, weight="bold"),
-                     text_color=TEXT).grid(row=0, column=0, padx=10, pady=(0, 12), sticky="w")
+        ctk.CTkLabel(sf, text="ComfyUIX Settings", font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color=TEXT).grid(row=0, column=0, padx=10, pady=(10, 12), sticky="w")
 
-        # PRESERVED_LEGACY: inlined control rendering replaced by shared helper to
-        # stop dropdown-hover-color drift between main-area and tab surfaces.
         r = self._build_shared_settings_fields(sf, 1)
         r = self._build_qol_settings(sf, r)
 
         ctk.CTkLabel(sf, text="Restart backend to apply changes.", font=ctk.CTkFont(size=9),
                      text_color=TEXT_MUTED).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
-        r += 1
 
-    def _build_debug_tab(self):
-        """Build the Debug tab — a one-stop failure-intelligence console.
+    def _build_debug_in_main(self):
+        """Build the Debug Console view in the main right-column area."""
+        if hasattr(self, "_debug_main") and self._debug_main:
+            try:
+                self._recursive_destroy(self._debug_main)
+            except Exception:
+                pass
+        self._debug_main = ctk.CTkFrame(self.root, fg_color=BG_SIDEBAR, corner_radius=10)
+        self._debug_main.grid(row=0, column=1, rowspan=4, padx=16, pady=(8, 16), sticky="nsew")
+        self._debug_main.grid_columnconfigure(0, weight=1)
+        self._debug_main.grid_rowconfigure(0, weight=1)
 
-        Shows: live app.log tail, recent crashes (with known-fix hints), current
-        app/breadcrumb state, and buttons to save a report or a full debug bundle.
-        Everything here is designed so an AI (or the user) can diagnose instantly.
-        """
-        t = self.tabview.tab("Debug")
-        t.grid_columnconfigure(0, weight=1)
-        t.grid_rowconfigure(0, weight=0)
-        t.grid_rowconfigure(1, weight=1)
-        sf = ctk.CTkScrollableFrame(t, fg_color=BG_CARD, corner_radius=10)
-        sf.grid(row=0, column=0, padx=16, pady=(8, 16), sticky="nsew")
+        sf = ctk.CTkFrame(self._debug_main, fg_color=BG_CARD, corner_radius=10)
+        sf.grid(row=0, column=0, padx=12, pady=(8, 12), sticky="nsew")
         sf.grid_columnconfigure(0, weight=1)
+        sf.grid_rowconfigure(3, weight=4)
+        sf.grid_rowconfigure(5, weight=1)
+        sf.grid_rowconfigure(7, weight=1)
 
-        ctk.CTkLabel(sf, text="Debug / Diagnostics Console",
+        ctk.CTkLabel(sf, text="ComfyUIX Diagnostics & Failure Intelligence Console",
                      font=ctk.CTkFont(size=14, weight="bold"), text_color=TEXT).grid(
-            row=0, column=0, padx=10, pady=(0, 8), sticky="w")
+            row=0, column=0, padx=12, pady=(10, 6), sticky="w")
 
-        # Action buttons
         btn_row = ctk.CTkFrame(sf, fg_color="transparent")
-        btn_row.grid(row=1, column=0, padx=10, pady=(0, 8), sticky="w")
-        ctk.CTkButton(btn_row, text="Refresh", width=100, height=28,
-                      fg_color=BG_CARD_ALT, text_color=TEXT, hover_color=BRAND_HOVER,
-                      command=lambda: self._debug_refresh()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(btn_row, text="Save Report", width=110, height=28,
-                      fg_color=BG_CARD_ALT, text_color=TEXT, hover_color=BRAND_HOVER,
-                      command=lambda: diagnostics_button_command(self)).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(btn_row, text="Build Debug Bundle", width=150, height=28,
-                      fg_color=BRAND, text_color="#FFFFFF", hover_color=BRAND_HOVER,
-                      command=lambda: bundle_button_command(self)).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(btn_row, text="Copy Report", width=110, height=28,
-                      fg_color=BG_CARD_ALT, text_color=TEXT, hover_color=BRAND_HOVER,
-                      command=lambda: self._debug_copy_report()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(btn_row, text="Open Folder", width=100, height=28,
-                      fg_color=BG_CARD_ALT, text_color=TEXT, hover_color=BRAND_HOVER,
-                      command=lambda: self._debug_open_folder()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(btn_row, text="Diagnose", width=100, height=28,
-                      fg_color=BRAND, text_color="#FFFFFF", hover_color=BRAND_HOVER,
-                      command=lambda: self._debug_diagnose()).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(btn_row, text="View Latest Crash", width=140, height=28,
-                      fg_color=BG_CARD_ALT, text_color=TEXT, hover_color=BRAND_HOVER,
-                      command=lambda: self._debug_view_crash(0)).pack(side="left", padx=(0, 6))
+        btn_row.grid(row=1, column=0, padx=10, pady=(0, 6), sticky="ew")
+
+        b_specs = [
+            ("Refresh", lambda: self._debug_refresh(), BG_CARD_ALT, TEXT, 0, 0),
+            ("Diagnose", lambda: self._debug_diagnose(), BRAND, "#FFFFFF", 0, 1),
+            ("Build Debug Bundle", lambda: bundle_button_command(self), BRAND, "#FFFFFF", 0, 2),
+            ("Save Report", lambda: diagnostics_button_command(self), BG_CARD_ALT, TEXT, 0, 3),
+            ("Copy Report", lambda: self._debug_copy_report(), BG_CARD_ALT, TEXT, 1, 0),
+            ("Open Folder", lambda: self._debug_open_folder(), BG_CARD_ALT, TEXT, 1, 1),
+            ("View Latest Crash", lambda: self._debug_view_crash(0), BG_CARD_ALT, TEXT, 1, 2),
+        ]
+        for txt, cmd, bgc, txc, r, c in b_specs:
+            b = ctk.CTkButton(btn_row, text=txt, height=30, fg_color=bgc, text_color=txc,
+                              hover_color=BRAND_HOVER, corner_radius=6, command=cmd,
+                              font=self.FONT_SMALL_BOLD)
+            b.grid(row=r, column=c, padx=3, pady=3, sticky="ew")
+        for c in range(4):
+            btn_row.grid_columnconfigure(c, weight=1)
 
         # Live log viewer
-        ctk.CTkLabel(sf, text="Live App Log (tail)", font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color=TEXT).grid(row=2, column=0, padx=10, pady=(6, 2), sticky="w")
-        log_box = ctk.CTkTextbox(sf, height=240, font=ctk.CTkFont(family="Consolas", size=9),
-                                 fg_color="#111114", text_color="#C8C8D0")
-        log_box.grid(row=3, column=0, padx=10, pady=(0, 8), sticky="nsew")
+        ctk.CTkLabel(sf, text="Live App Log (tail)", font=ctk.CTkFont(size=12, weight="bold"),
+                     text_color=TEXT).grid(row=2, column=0, padx=12, pady=(4, 2), sticky="w")
+        log_box = ctk.CTkTextbox(sf, font=ctk.CTkFont(family="Consolas", size=10),
+                                 fg_color=("#F8FAFC", "#111114"), text_color=("#0F172A", "#C8C8D0"))
+        log_box.grid(row=3, column=0, padx=12, pady=(0, 6), sticky="nsew")
         self._debug_log_box = log_box
 
         # Crashes viewer
-        ctk.CTkLabel(sf, text="Recent Crashes", font=ctk.CTkFont(size=11, weight="bold"),
-                     text_color=TEXT).grid(row=4, column=0, padx=10, pady=(6, 2), sticky="w")
-        crash_box = ctk.CTkTextbox(sf, height=200, font=ctk.CTkFont(family="Consolas", size=9),
-                                   fg_color="#111114", text_color="#C8C8D0")
-        crash_box.grid(row=5, column=0, padx=10, pady=(0, 8), sticky="nsew")
+        ctk.CTkLabel(sf, text="Recent Crashes", font=ctk.CTkFont(size=12, weight="bold"),
+                     text_color=TEXT).grid(row=4, column=0, padx=12, pady=(4, 2), sticky="w")
+        crash_box = ctk.CTkTextbox(sf, font=ctk.CTkFont(family="Consolas", size=10),
+                                   fg_color=("#F8FAFC", "#111114"), text_color=("#0F172A", "#C8C8D0"))
+        crash_box.grid(row=5, column=0, padx=12, pady=(0, 6), sticky="nsew")
         self._debug_crash_box = crash_box
 
         # State + breadcrumbs
         ctk.CTkLabel(sf, text="Current State & Breadcrumbs",
-                     font=ctk.CTkFont(size=11, weight="bold"), text_color=TEXT).grid(
-            row=6, column=0, padx=10, pady=(6, 2), sticky="w")
-        state_box = ctk.CTkTextbox(sf, height=160, font=ctk.CTkFont(family="Consolas", size=9),
-                                   fg_color="#111114", text_color="#C8C8D0")
-        state_box.grid(row=7, column=0, padx=10, pady=(0, 8), sticky="nsew")
+                     font=ctk.CTkFont(size=12, weight="bold"), text_color=TEXT).grid(
+            row=6, column=0, padx=12, pady=(4, 2), sticky="w")
+        state_box = ctk.CTkTextbox(sf, font=ctk.CTkFont(family="Consolas", size=10),
+                                   fg_color=("#F8FAFC", "#111114"), text_color=("#0F172A", "#C8C8D0"))
+        state_box.grid(row=7, column=0, padx=12, pady=(0, 10), sticky="nsew")
         self._debug_state_box = state_box
 
         # Immediately populate
@@ -3590,8 +3635,12 @@ class ComfyUIApp:
                 for c in crashes[:5]:
                     if isinstance(c, dict):
                         self._debug_crash_box.insert("end", "[%s] %s\n" % (c.get("timestamp", "?"), c.get("exception", "?")))
-                        for fix in (c.get("known_fixes", []) or []):
-                            self._debug_crash_box.insert("end", "   ↳ KNOWN FIX: %s\n      %s\n" % (fix.get("title", ""), fix.get("fix", "")))
+                        fixes = c.get("known_fixes", []) or []
+                        for fix in fixes:
+                            if isinstance(fix, dict):
+                                self._debug_crash_box.insert("end", "   ↳ KNOWN FIX: %s\n      %s\n" % (fix.get("title", ""), fix.get("fix", "")))
+                            elif isinstance(fix, str):
+                                self._debug_crash_box.insert("end", "   ↳ KNOWN FIX: %s\n" % fix)
                         self._debug_crash_box.insert("end", "   dump: %s\n\n" % c.get("dump_path", "?"))
             # State + breadcrumbs
             if hasattr(self, "_debug_state_box") and self._debug_state_box.winfo_exists():
@@ -3605,8 +3654,20 @@ class ComfyUIApp:
                     d = b.get("data", {})
                     ds = " ".join("%s=%s" % (k, v) for k, v in d.items())
                     self._debug_state_box.insert("end", "  [%s] %s %s\n" % (b.get("t", "?"), b.get("action", "?"), ds))
-        except Exception:
-            pass
+        except Exception as _dbg_err:
+            # ADDITIVE fix: NEVER silently blank the Debug tab. If diagnostics
+            # import/refresh fails, SHOW the error so the tab is debuggable.
+            try:
+                import traceback as _tb
+                msg = "DEBUG REFRESH ERROR:\n%s\n" % _tb.format_exc()
+                if hasattr(self, "_debug_state_box") and self._debug_state_box.winfo_exists():
+                    self._debug_state_box.delete("1.0", "end")
+                    self._debug_state_box.insert("end", msg)
+                elif hasattr(self, "_debug_log_box") and self._debug_log_box.winfo_exists():
+                    self._debug_log_box.insert("end", msg)
+                logging.error("Debug tab refresh failed: %s", _dbg_err)
+            except Exception:
+                pass
 
     def _debug_open_folder(self):
         """Open the diagnostics folder in Explorer."""
@@ -3718,25 +3779,29 @@ class ComfyUIApp:
         try:
             if getattr(self, '_tab_switch_lock', False):
                 return
-            if time.time() - getattr(self, '_last_tab_switch', 0) < 0.3:
+            if not name:
+                if hasattr(self, 'notebook') and self.notebook:
+                    try:
+                        name = self.notebook.select()
+                    except Exception:
+                        name = None
+                if not name and hasattr(self, 'tabview') and self.tabview:
+                    try:
+                        name = self.tabview.get()
+                    except Exception:
+                        name = None
+
+            # Debounce: reject rapid re-clicks to the SAME tab (within 0.3s).
+            # But ALWAYS allow switching to a different tab or first-time builds.
+            last_tab = getattr(self, '_last_tab_name', None)
+            now = time.time()
+            if name == last_tab and (now - getattr(self, '_last_tab_switch', 0) < 0.3):
                 return
+            self._last_tab_name = name
+            self._last_tab_switch = now
+
             self._tab_switch_lock = True
-            self._last_tab_switch = time.time()
             try:
-                if not name:
-                    if hasattr(self, 'notebook') and self.notebook:
-                        try:
-                            name = self.notebook.select()
-                        except Exception:
-                            name = None
-                    if not name and hasattr(self, 'tabview') and self.tabview:
-                        try:
-                            name = self.tabview.get()
-                        except Exception:
-                            name = None
-                # PRESERVED_LEGACY: replaced dead if/elif chain (compared against
-                # never-assigned self.*_tab attrs) and incomplete tab_map with a
-                # single comprehensive lookup covering all 8 tab surfaces.
                 tab_map = {
                     "Text to Image": "txt2img", "txt2img": "txt2img",
                     "Image to Image": "img2img", "img2img": "img2img",
@@ -3753,7 +3818,9 @@ class ComfyUIApp:
             finally:
                 self._tab_switch_lock = False
         except Exception as e:
-            self._set_status(f"Error: {str(e)[:30]}")
+            self._tab_switch_lock = False
+            self._set_status("Error: %s" % str(e)[:30])
+
 
     # ------------------------------------------------------------------
     # Backend lifecycle
@@ -4248,10 +4315,11 @@ class ComfyUIApp:
                 pass
 
     def _switch_tab_by_index(self, idx):
-        """Switch to the tab at the given index (Ctrl+1/2/3/4 shortcut)."""
+        """Switch to the creation tab at the given index (Ctrl+1..6 shortcut)."""
         try:
-            tabs = ["Text to Image", "Image to Image", "Upscale", "Video"]
+            tabs = ["Text to Image", "Image to Image", "Upscale", "Text to Video", "Video to Video", "Video Refine & Upscale"]
             if 0 <= idx < len(tabs):
+                self._show_view("generate")
                 self.tabview.set(tabs[idx])
         except Exception:
             pass
@@ -4378,12 +4446,14 @@ class ComfyUIApp:
             pass
 
     def _clear_prompt(self):
-        """Clear the active prompt text box."""
+        """Clear active prompt and negative prompt text boxes."""
         try:
-            for tab in ("txt2img", "img2img", "upscale"):
+            for tab in ("txt2img", "img2img", "upscale", "txt2video", "vid2vid", "refine"):
                 attr = getattr(self, "%s_prompt" % tab, None)
                 if attr is not None:
                     attr.delete("1.0", "end")
+            if hasattr(self, "n_prompt") and self.n_prompt:
+                self.n_prompt.delete("1.0", "end")
             self._set_status("Prompt cleared")
         except Exception:
             pass
@@ -4662,6 +4732,18 @@ class ComfyUIApp:
         mode = getattr(self, "_gen_mode", self.current_tab)
         self._play_complete_sound()
         try:
+            out_path = img_meta.get("filename")
+            if out_path and not os.path.isabs(out_path):
+                out_path = os.path.join(OUTPUT_DIR, out_path)
+            if getattr(self, "qol_auto_open_output", None) and self.qol_auto_open_output.get() == "1" and out_path and os.path.isfile(out_path):
+                try: os.startfile(out_path)
+                except Exception: pass
+            if getattr(self, "qol_auto_free_vram", None) and self.qol_auto_free_vram.get() == "1":
+                try: self._free_vram()
+                except Exception: pass
+        except Exception:
+            pass
+        try:
             fn = img_meta.get("filename")
             sub = img_meta.get("subfolder", "")
             url = COMFYUI_URL + "/view?filename=" + fn + "&subfolder=" + sub + "&type=output"
@@ -4711,6 +4793,18 @@ class ComfyUIApp:
 
     def _show_video(self, vid_meta):
         self._play_complete_sound()
+        try:
+            out_path = vid_meta.get("filename")
+            if out_path and not os.path.isabs(out_path):
+                out_path = os.path.join(OUTPUT_DIR, out_path)
+            if getattr(self, "qol_auto_open_output", None) and self.qol_auto_open_output.get() == "1" and out_path and os.path.isfile(out_path):
+                try: os.startfile(out_path)
+                except Exception: pass
+            if getattr(self, "qol_auto_free_vram", None) and self.qol_auto_free_vram.get() == "1":
+                try: self._free_vram()
+                except Exception: pass
+        except Exception:
+            pass
         """Download + save a generated H3 video (MP4) to OUTPUT_DIR and notify."""
 
         mode = getattr(self, "_gen_mode", self.current_tab)
@@ -5248,8 +5342,13 @@ class ComfyUIApp:
             def _load_text():
                 try:
                     if os.path.exists(path):
+                        sz = os.path.getsize(path)
                         with open(path, "r", errors="replace") as fh:
-                            content = fh.read()
+                            if sz > 200000:
+                                fh.seek(sz - 200000)
+                                content = f"... (tail of {sz // 1024} KB file)\n" + fh.read()
+                            else:
+                                content = fh.read()
                     else:
                         content = "(file not found: %s)" % path
                 except Exception as e:
@@ -5455,6 +5554,73 @@ def _crash_hook(exc_type, exc_value, exc_tb):
 
 def main():
     sys.excepthook = _crash_hook
+    # ------------------------------------------------------------------
+    # DEFENSE-IN-DEPTH: reclaim disk leaked by any PyInstaller temp extraction
+    # (_MEIxxxx dirs in %TEMP%). Onedir no longer forks a bootloader, but if a
+    # previous onefile build left orphans (or any future extraction occurs) we
+    # reap them on launch so they can't accumulate GBs of dead temp data.
+    # ------------------------------------------------------------------
+    try:
+        import shutil as _shutil
+        _tmp = os.environ.get("TEMP") or os.environ.get("TMP") or None
+        if _tmp and os.path.isdir(_tmp):
+            for _d in os.listdir(_tmp):
+                if _d.startswith("_MEI") and os.path.isdir(os.path.join(_tmp, _d)):
+                    try:
+                        _shutil.rmtree(os.path.join(_tmp, _d), ignore_errors=True)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    # ------------------------------------------------------------------
+    # SINGLE-INSTANCE GUARD (root-cause fix for "two apps open from the
+    # shortcut"). A named global mutex lets only ONE ComfyUIX process own
+    # the UI at a time. A second launch finds the mutex held by a LIVE
+    # process, raises that window to front, and exits — so a double-click
+    # or accidental second click can never spawn a 2nd GUI + 2nd backend.
+    # ------------------------------------------------------------------
+    _SINGLE_INSTANCE_MUTEX = "Global\\ComfyUIX_SingleInstance_v1"
+    _already_running = False
+    _mutex_handle = None
+    if os.name == "nt":
+        try:
+            import ctypes
+            _kernel32 = ctypes.windll.kernel32
+            # 0x1F0001 = CREATE_MUTEX with SYNCHRONIZE|MUTEX_ALL_ACCESS-ish
+            _mutex_handle = _kernel32.CreateMutexW(None, 1, _SINGLE_INSTANCE_MUTEX)
+            _last_err = _kernel32.GetLastError()
+            if _mutex_handle == 0 or _last_err == 183:  # ERROR_ALREADY_EXISTS (183)
+                _already_running = True
+        except Exception:
+            # If we can't create the mutex, fail OPEN (don't block launch).
+            _already_running = False
+    if _already_running:
+        try:
+            import ctypes
+            _user32 = ctypes.windll.user32
+            _hwnd = _user32.FindWindowW(None, None)
+            # Find the existing ComfyUIX window by its class/title.
+            # CTk uses a Tk toplevel; enumerate windows to match our title.
+            _target = None
+            def _enum(hwnd, _):
+                nonlocal _target
+                if _target is not None:
+                    return True
+                _buf = ctypes.create_unicode_buffer(256)
+                _user32.GetWindowTextW(hwnd, _buf, 256)
+                if _buf.value and ("ComfyUIX" in _buf.value):
+                    _target = hwnd
+                return True
+            _EnumWindows = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+            _user32.EnumWindows(_EnumWindows(_enum), 0)
+            if _target:
+                _user32.ShowWindow(_target, 9)  # SW_RESTORE = 9
+                _user32.SetForegroundWindow(_target)
+            print("ComfyUIX already running — brought existing window to front; this instance will exit.")
+        except Exception:
+            pass
+        sys.exit(0)
+
     # ADDITIVE: Native selftest flag support for Phase 4 EXE boot verification
     if "--selftest" in sys.argv:
         print("SELFTEST_START: Initializing Tkinter root and ComfyUIApp instance...")
@@ -5466,15 +5632,17 @@ def main():
             root.destroy()
             sys.exit(0)
         except Exception as e:
-            print(f"SELFTEST_FAILURE: {e}")
+            print("SELFTEST_FAILURE: %s" % e)
             sys.exit(1)
 
     root = ctk.CTk()
+    root.title("ComfyUIX")
     root.configure(bg="#141416")
     app = ComfyUIApp(root)
     root.title(app._stamped_title())
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.after(100, lambda: app._paint_header())
+    # Backend threads scheduled ONCE here (the redundant __init__ schedule was removed).
     root.after(500, lambda: app._start_backend_threads())
     root.mainloop()
 
