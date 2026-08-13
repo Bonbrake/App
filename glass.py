@@ -139,6 +139,10 @@ class AcrylicBackground:
             pass
         self.label = tk.Label(root, bg=bg_color)
         self.label.place(x=0, y=0, relwidth=1, relheight=1)
+        try:
+            self.label.lower()
+        except Exception:
+            pass
         self._job = None
         self._refresh(immediate=True)
         root.bind("<Configure>", self._on_configure)
@@ -168,6 +172,10 @@ class AcrylicBackground:
             self._tkimg = ImageTk.PhotoImage(img)
             self.label.configure(image=self._tkimg)
             self.label.image = self._tkimg
+            try:
+                self.label.lower()
+            except Exception:
+                pass
         except Exception:
             pass
 

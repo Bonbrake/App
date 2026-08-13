@@ -16,6 +16,7 @@ diagnostics/
 *.png
 *.log
 *.txt
+!requirements.txt
 nul
 _last_good/
 *.exe
