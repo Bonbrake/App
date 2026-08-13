@@ -1,0 +1,17 @@
+# Cross-platform line-ending safety for agent workflows (Gemini Spark, etc.)
+# Default: normalize text files to LF in the repo; check out per-platform.
+* text=auto eol=lf
+
+# Windows batch build scripts must stay CRLF (cmd.exe requires it)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never treat these as text (binary artifacts must not be re-encoded)
+*.png binary
+*.ico binary
+*.exe binary
+*.safetensors binary
+*.ckpt binary
+*.gguf binary
+*.pth binary
+*.zip binary
