@@ -1635,30 +1635,11 @@ class ComfyUIApp:
         except Exception:
             pass
 
-    def _build_settings_in_main(self):
-        """Build settings content in the main area."""
-        if hasattr(self, "_settings_main") and self._settings_main:
-            try:
-                self._recursive_destroy(self._settings_main)
-            except Exception:
-                pass
-        self._settings_main = ctk.CTkFrame(self.root, fg_color=BG_SIDEBAR, corner_radius=10)
-        self._settings_main.grid(row=0, column=1, rowspan=4, padx=16, pady=(8, 16), sticky="nsew")
-        self._settings_main.grid_columnconfigure(0, weight=1)
-        self._settings_main.grid_rowconfigure(20, weight=1)
-
-        ctk.CTkLabel(self._settings_main, text="Application Settings", font=ctk.CTkFont(size=14, weight="bold"),
-                     text_color=TEXT).grid(row=0, column=0, padx=10, pady=(0, 12), sticky="w")
-
-        # PRESERVED_LEGACY: inlined control rendering replaced by shared helper to
-        # stop dropdown-hover-color drift between main-area and tab surfaces.
-        r = self._build_shared_settings_fields(self._settings_main, 1)
-        r = self._build_qol_settings(self._settings_main, r)
-
-        ctk.CTkLabel(self._settings_main, text="Restart backend to apply changes.", font=ctk.CTkFont(size=9),
-                     text_color=TEXT_MUTED).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
-
     # ------------------------------------------------------------------
+    # NOTE: `_build_settings_in_main` is defined once, at the canonical
+    # location near the other main-area builders. The earlier duplicate copy
+    # here was removed (regression guard: duplicate method defs silently
+    # shadow each other). Keep a single source of truth.
     # ------------------------------------------------------------------
     def _build_shared_settings_fields(self, parent, start_row=1):
         """Render the 8 controls common to BOTH settings surfaces
@@ -1917,6 +1898,9 @@ class ComfyUIApp:
         self.tabview.add("Video to Video")
         self.tabview.add("Video Refine & Upscale")
         self.tabview.add("Audio")
+        # ADDITIVE: Debug tab (failure-intelligence console) lives in the tabview
+        # so it is always one click away; F12 still opens it in the main column.
+        self.tabview.add("Debug")
         self.tabview.set("Text to Image")
 
         self._tab_callbacks = {
@@ -1927,11 +1911,12 @@ class ComfyUIApp:
             "Video to Video": self._build_video_v2v_tab,
             "Video Refine & Upscale": self._build_video_refine_tab,
             "Audio": self._build_audio_tab,
+            "Debug": self._build_debug_tab,
         }
         self._tab_built = {"Text to Image": False, "Image to Image": False,
                            "Upscale": False, "Text to Video": False,
                            "Video to Video": False, "Video Refine & Upscale": False,
-                           "Audio": False}
+                           "Audio": False, "Debug": False}
 
         # Build txt2img tab immediately
         self._on_tab()
@@ -3898,6 +3883,81 @@ class ComfyUIApp:
                     self._debug_refresh()
         except Exception:
             pass
+        try:
+            self.root.after(3000, self._debug_autorefresh)
+        except Exception:
+            pass
+
+    def _build_debug_tab(self):
+        """Build the Debug tab (failure-intelligence console) inside the tabview.
+
+        ADDITIVE: mirrors the main-area Debug console (_build_debug_in_main)
+        but lives as a first-class tab so it is reachable without F12. All
+        required buttons (Diagnose / Open Folder / Copy Report / View Latest
+        Crash) are wired to the existing handlers.
+        """
+        try:
+            t = self.tabview.tab("Debug")
+        except Exception:
+            return
+        t.grid_columnconfigure(0, weight=1)
+        t.grid_rowconfigure(0, weight=1)
+
+        sf = ctk.CTkFrame(t, fg_color=BG_CARD, corner_radius=10)
+        sf.grid(row=0, column=0, padx=12, pady=(8, 12), sticky="nsew")
+        sf.grid_columnconfigure(0, weight=1)
+        sf.grid_rowconfigure(3, weight=4)
+        sf.grid_rowconfigure(5, weight=1)
+        sf.grid_rowconfigure(7, weight=1)
+
+        ctk.CTkLabel(sf, text="ComfyUIX Diagnostics & Failure Intelligence",
+                     font=ctk.CTkFont(size=14, weight="bold"), text_color=TEXT).grid(
+            row=0, column=0, padx=12, pady=(10, 6), sticky="w")
+
+        btn_row = ctk.CTkFrame(sf, fg_color="transparent")
+        btn_row.grid(row=1, column=0, padx=10, pady=(0, 6), sticky="ew")
+
+        # Required-by-audit buttons come first and are explicitly labelled.
+        b_specs = [
+            ("Refresh", lambda: self._debug_refresh(), BG_CARD_ALT, TEXT, 0, 0),
+            ("Diagnose", lambda: self._debug_diagnose(), BRAND, "#FFFFFF", 0, 1),
+            ("Open Folder", lambda: self._debug_open_folder(), BG_CARD_ALT, TEXT, 0, 2),
+            ("Copy Report", lambda: self._debug_copy_report(), BG_CARD_ALT, TEXT, 0, 3),
+            ("View Latest Crash", lambda: self._debug_view_crash(0), BG_CARD_ALT, TEXT, 1, 0),
+            ("Build Debug Bundle", lambda: bundle_button_command(self), BRAND, "#FFFFFF", 1, 1),
+            ("Save Report", lambda: diagnostics_button_command(self), BG_CARD_ALT, TEXT, 1, 2),
+        ]
+        for txt, cmd, bgc, txc, r, c in b_specs:
+            b = ctk.CTkButton(btn_row, text=txt, height=30, fg_color=bgc, text_color=txc,
+                              hover_color=BRAND_HOVER, corner_radius=6, command=cmd,
+                              font=self.FONT_SMALL_BOLD)
+            b.grid(row=r, column=c, padx=3, pady=3, sticky="ew")
+        for c in range(4):
+            btn_row.grid_columnconfigure(c, weight=1)
+
+        ctk.CTkLabel(sf, text="Live App Log (tail)", font=ctk.CTkFont(size=12, weight="bold"),
+                     text_color=TEXT).grid(row=2, column=0, padx=12, pady=(4, 2), sticky="w")
+        log_box = ctk.CTkTextbox(sf, font=ctk.CTkFont(family="Consolas", size=10),
+                                 fg_color=("#F8FAFC", "#111114"), text_color=("#0F172A", "#C8C8D0"))
+        log_box.grid(row=3, column=0, padx=12, pady=(0, 6), sticky="nsew")
+        self._debug_log_box = log_box
+
+        ctk.CTkLabel(sf, text="Recent Crashes", font=ctk.CTkFont(size=12, weight="bold"),
+                     text_color=TEXT).grid(row=4, column=0, padx=12, pady=(4, 2), sticky="w")
+        crash_box = ctk.CTkTextbox(sf, font=ctk.CTkFont(family="Consolas", size=10),
+                                   fg_color=("#F8FAFC", "#111114"), text_color=("#0F172A", "#C8C8D0"))
+        crash_box.grid(row=5, column=0, padx=12, pady=(0, 6), sticky="nsew")
+        self._debug_crash_box = crash_box
+
+        ctk.CTkLabel(sf, text="Current State & Breadcrumbs",
+                     font=ctk.CTkFont(size=12, weight="bold"), text_color=TEXT).grid(
+            row=6, column=0, padx=12, pady=(4, 2), sticky="w")
+        state_box = ctk.CTkTextbox(sf, font=ctk.CTkFont(family="Consolas", size=10),
+                                   fg_color=("#F8FAFC", "#111114"), text_color=("#0F172A", "#C8C8D0"))
+        state_box.grid(row=7, column=0, padx=12, pady=(0, 10), sticky="nsew")
+        self._debug_state_box = state_box
+
+        self._debug_refresh()
         try:
             self.root.after(3000, self._debug_autorefresh)
         except Exception:
