@@ -27,3 +27,6 @@ _last_good/
 # Generated filler blob (build_exe.py writes os.urandom(125MB) to inflate bundle) — never commit
 assets/bundle_payload.bin
 ComfyUIX/_internal/assets/bundle_payload.bin
+
+# Scratch/planning docs (not app source — keep out of agent context)
+TAB_DEBUG_PLAN.md
