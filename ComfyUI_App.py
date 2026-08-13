@@ -13,6 +13,24 @@ import subprocess
 import traceback
 import datetime
 import logging
+
+# FIX (2026-08-12): ensure Tcl/Tk init files are locatable when frozen.
+# Under PyInstaller's onefile bootloader the bundled _tcl_data/_tk_data are NOT
+# reliably discoverable by tkinter at import time on this machine (the rthook
+# points TCL_LIBRARY at a _MEI subdir that ends up empty). We instead point the
+# runtime vars at the on-disk Python311 Tcl/Tk install (always present here),
+# and FORCE-set them so the PyInstaller tkinter rthook cannot override with the
+# broken _MEI path. (The _tcl_data/_tk_data datas were removed from the spec so
+# the rthook's override branch is skipped entirely.)
+def _ensure_tcl_tk_env():
+    _tcl = r"C:\Users\user\AppData\Local\Programs\Python\Python311\tcl\tcl8.6"
+    _tk = r"C:\Users\user\AppData\Local\Programs\Python\Python311\tcl\tk8.6"
+    if os.path.isdir(_tcl):
+        os.environ["TCL_LIBRARY"] = _tcl
+    if os.path.isdir(_tk):
+        os.environ["TK_LIBRARY"] = _tk
+
+_ensure_tcl_tk_env()
 import tkinter as tk
 
 # Module-level alias so both _resolve_comfyui_portable_dir() (which rebinds
@@ -1898,6 +1916,7 @@ class ComfyUIApp:
         self.tabview.add("Text to Video")
         self.tabview.add("Video to Video")
         self.tabview.add("Video Refine & Upscale")
+        self.tabview.add("Audio")
         self.tabview.set("Text to Image")
 
         self._tab_callbacks = {
@@ -1907,10 +1926,12 @@ class ComfyUIApp:
             "Text to Video": self._build_video_tab,
             "Video to Video": self._build_video_v2v_tab,
             "Video Refine & Upscale": self._build_video_refine_tab,
+            "Audio": self._build_audio_tab,
         }
         self._tab_built = {"Text to Image": False, "Image to Image": False,
                            "Upscale": False, "Text to Video": False,
-                           "Video to Video": False, "Video Refine & Upscale": False}
+                           "Video to Video": False, "Video Refine & Upscale": False,
+                           "Audio": False}
 
         # Build txt2img tab immediately
         self._on_tab()
@@ -3421,6 +3442,114 @@ class ComfyUIApp:
         except Exception:
             return False
 
+    def _build_audio_tab(self):
+        """Audio / NPC voice-line generation tab.
+
+        Reconstructed from the deployed ComfyUIX.exe bytecode (the feature was
+        shipped only in the frozen build, not in tracked source). Uses the exact
+        widget set, variable keys, and copy from that build so future `build_exe.py`
+        runs keep the audio console. Mirrors the image/video tab conventions
+        (scrollable frame, enable_auto_hide_scrollbar, _labeled where applicable).
+        """
+        import tkinter as tk  # noqa: F401  (kept in sync with other tab builders)
+
+        t = self.tabview.tab("Audio")
+        t.grid_columnconfigure(0, weight=1)
+        t.grid_rowconfigure(0, weight=1)
+
+        # Banner / intro
+        banner = ctk.CTkFrame(t, fg_color=BG_CARD_ALT, corner_radius=10)
+        banner.grid(row=0, column=0, padx=16, pady=(8, 12), sticky="ew")
+        banner.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(banner, text="🎙️ Audio & NPC Voice Line Console",
+                     font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
+                     text_color=BRAND).grid(row=0, column=0, padx=12, pady=(8, 2), sticky="w")
+        ctk.CTkLabel(banner,
+                     text="💡 For AAA voice quality, place Suno Bark or AudioLDM models in ComfyUI/models/tts",
+                     font=ctk.CTkFont(family="Segoe UI", size=11),
+                     text_color=TEXT_MUTED).grid(row=1, column=0, padx=12, pady=(0, 8), sticky="w")
+
+        sf = ctk.CTkScrollableFrame(t, fg_color=BG_CARD, corner_radius=10)
+        sf.grid(row=1, column=0, padx=16, pady=(0, 16), sticky="nsew")
+        enable_auto_hide_scrollbar(sf)
+        sf.grid_columnconfigure(0, weight=1)
+
+        # Register audio-mode vars (consumed by _start_generate / _generate dispatch).
+        if "audio" not in self.vars:
+            self.vars["audio"] = {}
+
+        # Dialogue / voice-line prompt
+        self.audio_prompt_entry = ctk.CTkTextbox(sf, height=80, font=self.FONT_TEXT,
+                                                 fg_color=BG_CARD_ALT, text_color=TEXT)
+        self.audio_prompt_entry.grid(row=0, column=0, padx=10, pady=(8, 0), sticky="nsew")
+        self._apply_cursor_style(self.audio_prompt_entry)
+        ToolTip(self.audio_prompt_entry, "Dialogue / Voice Line Prompt\n\n"
+                "What the character says. For NPC lines, write natural speech; "
+                "Bark/AudioLDM will synthesize the voice.")
+        self.audio_prompt_entry.insert("1.0", "A gruff mechanic shouts over the engine noise: "
+                                            "'Get back! The reactor's about to blow!'")
+
+        # Negative prompt (noise / artifact filter)
+        self.audio_neg_entry = ctk.CTkTextbox(sf, height=50, font=self.FONT_TEXT,
+                                              fg_color=BG_CARD_ALT, text_color=TEXT)
+        self.audio_neg_entry.grid(row=1, column=0, padx=10, pady=(4, 0), sticky="nsew")
+        self._apply_cursor_style(self.audio_neg_entry)
+        ToolTip(self.audio_neg_entry, "Audio Noise & Artifact Filter (Negative Prompt)\n\n"
+                "Describe artifacts to avoid: robotic tone, clipping, room reverb, static.")
+        self.audio_neg_entry.insert("1.0", "robotic, clipping, low bitrate, static, room reverb")
+
+        self.vars["audio"]["prompt"] = self.audio_prompt_entry
+        self.vars["audio"]["neg"] = self.audio_neg_entry
+
+        r = 2
+        # Voice engine / model
+        model_var = tk.StringVar(value="Bark Audio (TTS)")
+        self.vars["audio"]["model"] = model_var
+        r = self._labeled(sf, r, "Voice Engine / Model", "Voice Model",
+                          ctk.CTkOptionMenu(sf, values=("Bark Audio (TTS)",
+                                                        "AudioLDM (Sound Effects)",
+                                                        "MusicGen (BGM / Ambient Track)",
+                                                        "System Voice (TTS)"),
+                                            variable=model_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG,
+                                            dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        # Audio format
+        format_var = tk.StringVar(value="WAV (44.1kHz 16-bit)")
+        self.vars["audio"]["format"] = format_var
+        r = self._labeled(sf, r, "Audio Format", "Audio Format",
+                          ctk.CTkOptionMenu(sf, values=("WAV (44.1kHz 16-bit)",
+                                                        "OGG Vorbis (Game Engine)",
+                                                        "MP3 (Standard)"),
+                                            variable=format_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG,
+                                            dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        # Duration
+        dur_var = tk.StringVar(value="5s")
+        self.vars["audio"]["duration"] = dur_var
+        r = self._labeled(sf, r, "Duration", "Duration",
+                          ctk.CTkOptionMenu(sf, values=("3s", "5s", "10s", "15s"),
+                                            variable=dur_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG,
+                                            dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
+
+        # Generate button
+        gen_audio_btn = ctk.CTkButton(sf, text="🎙️ Generate Audio / Voice Line",
+                                      font=ctk.CTkFont(size=12, weight="bold"), height=36,
+                                      fg_color=BRAND, hover_color=BRAND_HOVER, text_color="#FFFFFF",
+                                      command=lambda: self._start_generate("audio"))
+        gen_audio_btn.grid(row=r, column=0, padx=10, pady=(12, 10), sticky="ew")
+        ToolTip(gen_audio_btn, "Generate the audio/voice line with the selected engine. "
+                               "Routes through the audio backend (ComfyUI TTS nodes).")
+
     def _build_gallery_tab(self):
         """Build the Gallery tab - thumbnail grid of generated images.
 
@@ -3999,8 +4128,8 @@ class ComfyUIApp:
     # Workflow / Generation
     # ------------------------------------------------------------------
     def _build_workflow(self, mode):
-        """Build the ComfyUI workflow dict for the given mode (txt2img/img2img/upscale)."""
-        if not mode or mode not in ("txt2img", "img2img", "upscale"):
+        """Build the ComfyUI workflow dict for the given mode (txt2img/img2img/upscale/audio)."""
+        if not mode or mode not in ("txt2img", "img2img", "upscale", "audio"):
             mode = "txt2img"
         m = self.vars.get(mode, self.vars["txt2img"])
         # Safe numeric parsing: clamp to valid ComfyUI ranges so a typo / empty
@@ -4108,6 +4237,36 @@ class ComfyUIApp:
                                          "filename_prefix": "ComfyUI_Uncensored",
                                          "format": "Game Texture (TGA)" if m["format"].get() == "Game Texture (TGA)" else "PNG"}},
             }
+            return wf, ckpt
+        elif mode == "audio":
+            a = self.vars.get("audio", {})
+            prompt = (a.get("prompt").get("1.0", "end-1c").strip()
+                      if isinstance(a.get("prompt"), tk.Text) else "")
+            neg = (a.get("neg").get("1.0", "end-1c").strip()
+                   if isinstance(a.get("neg"), tk.Text) else "")
+            engine = a.get("model", tk.StringVar(value="Bark Audio (TTS)")).get()
+            fmt = a.get("format", tk.StringVar(value="WAV (44.1kHz 16-bit)")).get()
+            dur = a.get("duration", tk.StringVar(value="5s")).get()
+            save_fmt = "WAV" if "WAV" in fmt else ("OGG" if "OGG" in fmt else "MP3")
+            # Map the Audio tab's engine choices to the corresponding ComfyUI TTS node.
+            engine_node = {
+                "Bark Audio (TTS)": "BarkTextToSpeech",
+                "AudioLDM (Sound Effects)": "AudioLDMSampler",
+                "MusicGen (BGM / Ambient Track)": "MusicGenSampler",
+                "System Voice (TTS)": "SystemTTSSampler",
+            }.get(engine, "BarkTextToSpeech")
+            wf = {
+                "AudioPrompt": {"class_type": "BarkTextEncode" if engine_node == "BarkTextToSpeech" else "StringLiteral",
+                                "inputs": {"text": prompt, "negative": neg}},
+                "AudioModel": {"class_type": engine_node,
+                               "inputs": {"prompt": ["AudioPrompt", 0],
+                                          "duration": _safe_int(dur.replace("s", ""), default=5, lo=1, hi=30)}},
+                "AudioSave": {"class_type": "SaveAudio",
+                              "inputs": {"audio": ["AudioModel", 0],
+                                         "filename_prefix": "ComfyUI_Audio",
+                                         "format": save_fmt}},
+            }
+            self._set_status("Audio queued: %s (%s)" % (engine, fmt))
             return wf, ckpt
         else:
             return {}, ckpt
@@ -4217,7 +4376,7 @@ class ComfyUIApp:
         breadcrumb("start_generate", mode=mode or getattr(self, "current_tab", "?"))
         import time
         logging.info("Generate button clicked")
-        if mode and mode not in ("txt2img", "img2img", "upscale"):
+        if mode and mode not in ("txt2img", "img2img", "upscale", "audio"):
             self._set_status("Error: unknown mode '%s'" % mode)
             return
         # Active VRAM guard: never OOM the host — defer when VRAM is critical.
@@ -4225,8 +4384,8 @@ class ComfyUIApp:
         if self._vram_critical(thresh):
             self._set_status("VRAM critical (>%d%%) - wait for VRAM to clear before generating" % int(thresh * 100))
             return
-        target_mode = mode if mode and mode in ("txt2img", "img2img", "upscale") else self.current_tab
-        if target_mode not in ("txt2img", "img2img", "upscale"):
+        target_mode = mode if mode and mode in ("txt2img", "img2img", "upscale", "audio") else self.current_tab
+        if target_mode not in ("txt2img", "img2img", "upscale", "audio"):
             self._set_status("Error: unknown mode '%s'" % target_mode)
             return
         if time.time() - getattr(self, '_last_generate', 0) < 1.0:

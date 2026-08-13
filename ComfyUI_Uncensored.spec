@@ -19,6 +19,13 @@ if not os.path.exists(icon_path):
     icon_path = portable_icon
 build_info_path = os.path.join(REPO_ROOT, "build_info.json")
 
+# FIX (2026-08-12): Tcl/Tk init files are located at runtime via the on-disk
+# Python311 install (see _ensure_tcl_tk_env() in ComfyUI_App.py, which FORCE-sets
+# TCL_LIBRARY/TK_LIBRARY before `import tkinter`). We deliberately do NOT bundle
+# _tcl_data/_tk_data: under PyInstaller's onefile bootloader the rthook points
+# TCL_LIBRARY at a _MEI subdir that ends up empty on this machine, breaking
+# tkinter init. Pointing at the always-present on-disk tcl is deterministic.
+
 # FIX (2026-08-09): PyInstaller 6.21's isolated subprocess crashes on
 # discover_hook_directories() ("TypeError: arg 5 (closure) must be tuple" under
 # this Python 3.11 build), so PyInstaller silently falls back to hookspath=[]
