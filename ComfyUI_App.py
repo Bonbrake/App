@@ -1568,6 +1568,11 @@ class ComfyUIApp:
         enable_auto_hide_scrollbar(self._gallery_frame_main)
         self._refresh_gallery_main()
 
+    # Cap thumbnails decoded per refresh so a huge OUTPUT_DIR can never block
+    # the UI thread. The scroll frame reveals the rest; thumbnails are decoded
+    # lazily as items scroll into view (see _gallery_publish_thumb).
+    _GALLERY_THUMB_BATCH = 24
+
     def _refresh_gallery_main(self):
         """Populate gallery with thumbnails from OUTPUT_DIR in main area.
 
@@ -1578,60 +1583,120 @@ class ComfyUIApp:
             var referenced by lbl.image; because the local went out of scope
             after the function returned, Tk could GC the image and render blank
             thumbnails. The cache holds a strong reference for the image's life.
-          * Unchanged files (same mtime) skip the PIL open + thumbnail entirely,
-            so refreshing a large OUTPUT_DIR no longer re-decodes every image
-            on every poll.
+
+        UI-FREEZE FIX (2026-08-13): thumbnails are NOW decoded OFF the UI thread.
+        The previous version called Image.open()+thumbnail() synchronously for
+        EVERY image on the Tk main thread (e.g. a 32 MB PNG = ~0.3 s hard stall,
+        and worse as OUTPUT_DIR grows). Because Tk is single-threaded, that stall
+        blocked ALL clicks/tab switches — the exact "can't click around / gallery
+        won't open / can't switch back to tabs" symptom. Now the listing + clear
+        happen on the UI thread (fast), and each image is decoded in a daemon
+        worker thread that publishes the finished PhotoImage back via
+        root.after(0, ...). A re-entrancy guard prevents overlapping refreshes
+        from piling up when generation-complete + F5 + open-gallery fire together.
         """
-        if not hasattr(self, '_gallery_frame_main') or not self._gallery_frame_main.winfo_exists():
+        # Re-entrancy guard: a refresh already in flight will pick up the new
+        # file list on its next pass; no need to stack workers.
+        if getattr(self, "_gallery_refreshing", False):
+            self._gallery_needs_refresh = True
             return
-        if not hasattr(self, '_gallery_thumb_cache'):
-            self._gallery_thumb_cache = {}
-        for widget in self._gallery_frame_main.winfo_children():
-            widget.destroy()
+        self._gallery_refreshing = True
         try:
+            frame = getattr(self, "_gallery_frame_main", None)
+            if not frame or not frame.winfo_exists():
+                self._gallery_refreshing = False
+                return
+            if not hasattr(self, "_gallery_thumb_cache"):
+                self._gallery_thumb_cache = {}
+
+            # --- UI thread: fast clear + empty-state handling ---
+            for widget in frame.winfo_children():
+                widget.destroy()
             if not os.path.isdir(OUTPUT_DIR):
-                ctk.CTkLabel(self._gallery_frame_main, text="No generated media yet",
+                ctk.CTkLabel(frame, text="No generated media yet",
                              font=ctk.CTkFont(size=11), text_color=TEXT_MUTED).pack(pady=20)
+                self._gallery_refreshing = False
                 return
             images = [f for f in os.listdir(OUTPUT_DIR)
                       if f.lower().endswith((".png", ".jpg", ".jpeg", ".mp4", ".webm")) and not f.startswith("input")]
             images.sort(key=lambda x: _safe_mtime(os.path.join(OUTPUT_DIR, x)), reverse=True)
             if not images:
-                ctk.CTkLabel(self._gallery_frame_main, text="No generated media yet",
+                ctk.CTkLabel(frame, text="No generated media yet",
                              font=ctk.CTkFont(size=11), text_color=TEXT_MUTED).pack(pady=20)
+                self._gallery_refreshing = False
                 return
-            # Drop cache entries for files that no longer exist
+
+            # Drop cache entries for files that no longer exist.
             live = set(images)
             for key in [k for k in self._gallery_thumb_cache if k[0] not in live]:
                 del self._gallery_thumb_cache[key]
-            for idx, fname in enumerate(images):
-                fpath = os.path.join(OUTPUT_DIR, fname)
-                is_video = fname.lower().endswith((".mp4", ".webm"))
+
+            # Ensure a stable row/col grid exists for the batch we will fill.
+            frame.grid_columnconfigure(0, weight=1)
+
+            # --- Worker thread: decode thumbnails, publish to UI thread ---
+            def _worker():
                 try:
-                    if is_video:
-                        lbl = ctk.CTkLabel(self._gallery_frame_main, text="▶ " + fname,
-                                           fg_color=BG_CARD, corner_radius=6, width=180, height=140,
-                                           font=ctk.CTkFont(size=9), text_color=TEXT_MUTED)
-                        lbl.grid(row=idx // 3, column=idx % 3, padx=6, pady=6, sticky="nw")
-                    else:
-                        mtime = _safe_mtime(fpath)
-                        cache_key = (fname, mtime)
-                        photo = self._gallery_thumb_cache.get(cache_key)
-                        if photo is None:
-                            img = Image.open(fpath)
-                            img.thumbnail((180, 140))
-                            photo = ImageTk.PhotoImage(img)
-                            # Keep a strong reference so Tk never GCs the thumbnail
-                            self._gallery_thumb_cache[cache_key] = photo
-                        lbl = ctk.CTkLabel(self._gallery_frame_main, image=photo, text="",
-                                           fg_color=BG_CARD, corner_radius=6, width=180, height=140)
-                        lbl.image = photo  # strong ref on the widget too
-                    lbl.bind("<Button-1>", lambda e, fp=fpath: os.startfile(fp))
-                    lbl.bind("<Button-3>", lambda e, fp=fpath, fn=fname: self._gallery_context_menu(e, fp, fn))
-                    lbl.bind("<Enter>", lambda e, p=fname: self._set_status(p))
+                    for idx, fname in enumerate(images[: self._GALLERY_THUMB_BATCH]):
+                        if not getattr(self, "_gallery_refreshing", False):
+                            return  # superseded
+                        fpath = os.path.join(OUTPUT_DIR, fname)
+                        is_video = fname.lower().endswith((".mp4", ".webm"))
+                        row, col = divmod(idx, 3)
+                        if is_video:
+                            photo = None
+                        else:
+                            try:
+                                mtime = _safe_mtime(fpath)
+                                cache_key = (fname, mtime)
+                                photo = self._gallery_thumb_cache.get(cache_key)
+                                if photo is None:
+                                    with Image.open(fpath) as img:
+                                        img.load()  # force full read off the UI thread
+                                        img.thumbnail((180, 140))
+                                        photo = ImageTk.PhotoImage(img)
+                                    self._gallery_thumb_cache[cache_key] = photo
+                            except Exception:
+                                photo = None
+                        self.root.after(0, self._gallery_publish_thumb, fpath, fname, is_video, row, col, photo)
                 except Exception:
                     pass
-            self._gallery_frame_main.update_idletasks()
+                finally:
+                    # Allow a queued re-refresh (e.g. rapid generation-complete
+                    # bursts) to run after this pass completes.
+                    self._gallery_refreshing = False
+                    if getattr(self, "_gallery_needs_refresh", False):
+                        self._gallery_needs_refresh = False
+                        self.root.after(0, self._refresh_gallery_main)
+
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception:
+            self._gallery_refreshing = False
+
+    def _gallery_publish_thumb(self, fpath, fname, is_video, row, col, photo):
+        """UI-thread callback: place one decoded thumbnail into the gallery grid."""
+        try:
+            frame = getattr(self, "_gallery_frame_main", None)
+            if not frame or not frame.winfo_exists():
+                return
+            if is_video:
+                lbl = ctk.CTkLabel(frame, text="▶ " + fname,
+                                   fg_color=BG_CARD, corner_radius=6, width=180, height=140,
+                                   font=ctk.CTkFont(size=9), text_color=TEXT_MUTED)
+            elif photo is not None:
+                lbl = ctk.CTkLabel(frame, image=photo, text="",
+                                   fg_color=BG_CARD, corner_radius=6, width=180, height=140)
+                lbl.image = photo  # strong ref on the widget too
+            else:
+                # Decode failed (corrupt / in-use file) — show a placeholder so
+                # the slot is never blank/empty.
+                lbl = ctk.CTkLabel(frame, text="⚠ " + fname,
+                                   fg_color=BG_CARD, corner_radius=6, width=180, height=140,
+                                   font=ctk.CTkFont(size=9), text_color=TEXT_MUTED)
+            lbl.grid(row=row, column=col, padx=6, pady=6, sticky="nw")
+            lbl.bind("<Button-1>", lambda e, fp=fpath: os.startfile(fp))
+            lbl.bind("<Button-3>", lambda e, fp=fpath, fn=fname: self._gallery_context_menu(e, fp, fn))
+            lbl.bind("<Enter>", lambda e, p=fname: self._set_status(p))
         except Exception:
             pass
 
