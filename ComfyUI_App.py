@@ -2750,17 +2750,21 @@ class ComfyUIApp:
             cond_inputs["negative_prompt"] = neg
         wf["H3Cond"] = {"class_type": "MiniMaxH3Conditioning", "inputs": cond_inputs}
         if blockswap:
+            # Aligned to installed MiniMaxH3BlockSwapArgs.INPUT_TYPES:
+            # required = block_to_swap, hot_blocks, prefetch, prefetch_count,
+            #            pin_memory, disk_workers, auto_vram, dtype
             wf["H3BS"] = {"class_type": "MiniMaxH3BlockSwapArgs",
-                          "inputs": {"block_to_swap": 47, "prefetch": True, "prefetch_count": 2,
-                                     "pin_memory": True, "disk_workers": 2, "dtype": "bfloat16"}}
+                          "inputs": {"block_to_swap": 47, "hot_blocks": 0, "prefetch": True,
+                                     "prefetch_count": 2, "pin_memory": True, "disk_workers": 2,
+                                     "auto_vram": True, "dtype": "bfloat16"}}
         if teacache:
             wf["H3TC"] = {"class_type": "MiniMaxH3TeaCacheArgs",
                           "inputs": {"start_block": 3, "max_skip_blocks": 15,
                                      "rel_l1_thresh": 0.08, "warmup_steps": 1, "cooldown_steps": 2}}
         ks_in = {"model": ["H3Loader", 0], "positive": ["H3Cond", 0],
                  "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler,
-                 "shift_video": shift, "denoise": denoise, "use_adaln_cache": adaln,
-                 "spectrum": bool(spectrum),
+                 "scheduler_name": "normal", "shift_video": shift, "shift_audio": 3.0,
+                 "denoise": denoise, "use_adaln_cache": adaln, "adaln_prebake_batch": 3,
                  "negative": ["H3Cond", 0], "latent": ["H3Cond", 2]}
         if neg and neg.strip():
             ks_in["negative"] = ["H3Cond", 1]
@@ -3074,9 +3078,13 @@ class ComfyUIApp:
                             "inputs": {"backend": self.v2v_attn_var.get(), "force_backend": True}}
             wf["H3Loader"]["inputs"]["attn_backend"] = ["H3Attn", 0]
         if blockswap:
+            # Aligned to installed MiniMaxH3BlockSwapArgs.INPUT_TYPES:
+            # required = block_to_swap, hot_blocks, prefetch, prefetch_count,
+            #            pin_memory, disk_workers, auto_vram, dtype
             wf["H3BS"] = {"class_type": "MiniMaxH3BlockSwapArgs",
-                          "inputs": {"block_to_swap": 47, "prefetch": True, "prefetch_count": 2,
-                                     "pin_memory": True, "disk_workers": 2, "dtype": "bfloat16"}}
+                          "inputs": {"block_to_swap": 47, "hot_blocks": 0, "prefetch": True,
+                                     "prefetch_count": 2, "pin_memory": True, "disk_workers": 2,
+                                     "auto_vram": True, "dtype": "bfloat16"}}
         if teacache:
             wf["H3TC"] = {"class_type": "MiniMaxH3TeaCacheArgs",
                           "inputs": {"start_block": 3, "max_skip_blocks": 15,
@@ -3138,8 +3146,8 @@ class ComfyUIApp:
                                             "av_encoder": ["H3VAE", 0]}}
         ks_in = {"model": ["H3Loader", 0], "positive": ["H3Ref", 0],
                  "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler,
-                 "shift_video": shift, "denoise": denoise, "use_adaln_cache": adaln,
-                 "spectrum": bool(spectrum),
+                 "scheduler_name": "normal", "shift_video": shift, "shift_audio": 3.0,
+                 "denoise": denoise, "use_adaln_cache": adaln, "adaln_prebake_batch": 3,
                  "negative": (["H3CondNoNeg", 1] if (neg and neg.strip()) else ["H3Ref", 0]),
                  "latent": ["H3Ref", 1]}
         if teacache:
@@ -3718,6 +3726,29 @@ class ComfyUIApp:
 
         ctk.CTkLabel(sf, text="Restart backend to apply changes.", font=ctk.CTkFont(size=9),
                      text_color=TEXT_MUTED).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
+
+    def _build_settings_tab(self):
+        """Build the Settings tab - legacy tabview surface for settings.
+
+        PRESERVED_LEGACY: the Settings UI moved to the sidebar-driven main-column
+        view (_build_settings_in_main). This tab builder is retained so the
+        legacy surface still works if a "Settings" tab is ever re-added to the
+        tabview, but calling it while no such tab exists raised
+        ValueError: CTkTabview has no tab named 'Settings'. Guard and no-op
+        (mirrors _build_gallery_tab).
+        """
+        if not self._has_tab("Settings"):
+            logging.debug("_build_settings_tab skipped - no 'Settings' tab in tabview")
+            return
+        t = self.tabview.tab("Settings")
+        t.grid_columnconfigure(0, weight=1)
+        t.grid_rowconfigure(0, weight=1)
+        sf = ctk.CTkFrame(t, fg_color=BG_CARD, corner_radius=10)
+        sf.grid(row=0, column=0, padx=16, pady=(8, 16), sticky="nsew")
+        sf.grid_columnconfigure(0, weight=1)
+        sf.grid_rowconfigure(1, weight=1)
+        r = self._build_shared_settings_fields(sf, 1)
+        self._build_qol_settings(sf, r)
 
     def _build_debug_in_main(self):
         """Build the Debug Console view in the main right-column area."""

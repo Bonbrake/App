@@ -219,8 +219,12 @@ def test_t2v_graph_build():
         chk("T8: denoise wired", ks_in["denoise"] == 1.0, str(ks_in["denoise"]))
         # T9
         chk("T9: use_adaln_cache wired", ks_in["use_adaln_cache"] == True, str(ks_in["use_adaln_cache"]))
-        # T10
-        chk("T10: spectrum wired", ks_in["spectrum"] == True, str(ks_in["spectrum"]))
+        # T10: the installed MiniMaxH3KSampler has NO 'spectrum' input (node INPUT_TYPES
+        # drift); the spectrum toggle is superseded by use_adaln_cache (T9). Assert the
+        # graph no longer ships the invalid key (this is what qa_runtime's schema check
+        # requires) instead of asserting a key the node rejects.
+        chk("T10: spectrum key removed from H3KS (node INPUT_TYPES has no 'spectrum')",
+            "spectrum" not in ks_in, "present" if "spectrum" in ks_in else "removed")
         # T11
         chk("T11: teacache absent when disabled", "teacache_args" not in ks_in, "ok")
         # T12
