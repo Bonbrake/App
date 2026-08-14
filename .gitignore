@@ -28,5 +28,10 @@ _last_good/
 assets/bundle_payload.bin
 ComfyUIX/_internal/assets/bundle_payload.bin
 
+# Frozen deploy artifacts (343MB onedir bundle + rollback) — source of truth is main.py + ComfyUIX.spec
+ComfyUIX/
+_last_good_glass/
+build_glass_run.log
+
 # Scratch/planning docs (not app source — keep out of agent context)
 TAB_DEBUG_PLAN.md

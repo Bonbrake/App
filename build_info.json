@@ -1,5 +1,6 @@
 {
-  "build": "2026-08-12 20:17",
+  "build": "2026-08-13 20:34",
   "built_with": "PyInstaller 6.21.0",
-  "repo": "ComfyUI-Desktop"
+  "repo": "ComfyUI-Desktop",
+  "target": "ComfyUIX (main.py)"
 }

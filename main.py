@@ -253,6 +253,14 @@ def _resolve_has_video():
         return False
 
 
+def _safe_mtime(path):
+    """Return mtime of a file, or 0.0 if it vanished (avoids crashes during gallery scan)."""
+    try:
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
 # ---- Paths ----
 # Derived from the app's own location so the project is portable.
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -935,7 +943,7 @@ class ComfyUIApp:
                      text_color=TEXT).grid(row=1, column=0, padx=20, pady=(0, 14), sticky="w")
 
         nav = [("Generate", self._focus_generate), ("Gallery", self._focus_gallery),
-               ("Settings", self._focus_settings)]
+               ("Debug", self._focus_debug), ("Settings", self._focus_settings)]
         for i, (label, cmd) in enumerate(nav):
             b = ctk.CTkButton(sb, text=label, height=34, anchor="w", fg_color="transparent",
                               text_color=TEXT, hover_color=BG_CARD_ALT,
@@ -1123,28 +1131,48 @@ class ComfyUIApp:
             logging.error("Focus settings error: %s", e)
             self._set_status(f"Error: {str(e)[:30]}")
 
+    def _focus_debug(self):
+        try:
+            logging.info("Focus debug clicked")
+            self._build_debug_in_main()
+            self._show_view("debug")
+        except Exception as e:
+            logging.error("Focus debug error: %s", e)
+            self._set_status(f"Error: {str(e)[:30]}")
+
     def _show_view(self, name):
         """Toggle which right-column view is visible.
 
         'generate'  -> show the params + preview pane (self.top)
         'gallery'   -> show _gallery_main
         'settings'  -> show _settings_main
+        'debug'     -> show _debug_main
         """
         try:
             if name == "generate":
                 self.top.grid()
-                for f in ("_gallery_main", "_settings_main"):
+                for f in ("_gallery_main", "_settings_main", "_debug_main"):
                     if hasattr(self, f) and getattr(self, f).winfo_exists():
                         getattr(self, f).grid_remove()
             else:
                 self.top.grid_remove()
-                target = "_gallery_main" if name == "gallery" else "_settings_main"
+                if name == "gallery":
+                    target = "_gallery_main"
+                    builder = self._build_gallery_in_main
+                elif name == "settings":
+                    target = "_settings_main"
+                    builder = self._build_settings_in_main
+                else:
+                    target = "_debug_main"
+                    builder = self._build_debug_in_main
+                # Hide the OTHER main-area views so they never overlap the active one
+                # (e.g. switching gallery -> debug must retract the gallery frame).
+                for f in ("_gallery_main", "_settings_main", "_debug_main"):
+                    if f != target and hasattr(self, f) and getattr(self, f).winfo_exists():
+                        getattr(self, f).grid_remove()
                 if not (hasattr(self, target) and getattr(self, target).winfo_exists()):
                     # Frame was destroyed by a UI rebuild (e.g. scaling change) — recreate it
-                    if name == "gallery":
-                        self._build_gallery_in_main()
-                    else:
-                        self._build_settings_in_main()
+                    builder()
                 if hasattr(self, target) and getattr(self, target).winfo_exists():
                     getattr(self, target).grid()
         except Exception as e:
@@ -1179,41 +1207,100 @@ class ComfyUIApp:
         enable_auto_hide_scrollbar(self._gallery_frame_main)
         self._refresh_gallery_main()
 
+    # Cap thumbnails decoded per refresh so a huge OUTPUT_DIR can never block
+    # the UI thread. Additional items are revealed lazily as they scroll into view.
+    _GALLERY_THUMB_BATCH = 24
+
     def _refresh_gallery_main(self):
-        """Populate gallery with thumbnails from OUTPUT_DIR in main area."""
-        if not hasattr(self, '_gallery_frame_main') or not self._gallery_frame_main.winfo_exists():
+        """Populate gallery with thumbnails from OUTPUT_DIR in main area.
+
+        UI-FREEZE FIX (2026-08-13): thumbnails are decoded OFF the UI thread.
+        The previous version called Image.open()+thumbnail()+PhotoImage() synchronously
+        for EVERY image on the Tk main thread (e.g. a 32 MB PNG = ~0.3 s hard stall, and
+        worse as OUTPUT_DIR grows). Because Tk is single-threaded, that stall blocked ALL
+        clicks/tab switches -> the exact "gallery won't open / can't switch back to Generate"
+        symptom. Now the listing + clear happen on the UI thread (fast), and each image is
+        decoded in a daemon worker thread that publishes the finished PhotoImage back via
+        root.after(0, ...). A re-entrancy guard prevents overlapping refreshes from piling up
+        when generation-complete + F5 + open-gallery fire together.
+        """
+        # Re-entrancy guard: a refresh already in flight will pick up the new file list
+        # on its next pass; no need to stack workers.
+        if getattr(self, "_gallery_refreshing", False):
+            self._gallery_needs_refresh = True
             return
-        for widget in self._gallery_frame_main.winfo_children():
-            widget.destroy()
+        self._gallery_refreshing = True
         try:
+            frame = getattr(self, "_gallery_frame_main", None)
+            if not frame or not frame.winfo_exists():
+                self._gallery_refreshing = False
+                return
+            if not hasattr(self, "_gallery_thumb_cache"):
+                self._gallery_thumb_cache = {}
+
+            # --- UI thread: fast clear + empty-state handling ---
+            for widget in frame.winfo_children():
+                widget.destroy()
             if not os.path.isdir(OUTPUT_DIR):
-                ctk.CTkLabel(self._gallery_frame_main, text="No generated images yet",
+                ctk.CTkLabel(frame, text="No generated images yet",
                              font=ctk.CTkFont(size=11), text_color=TEXT_MUTED).pack(pady=20)
+                self._gallery_refreshing = False
                 return
             images = [f for f in os.listdir(OUTPUT_DIR)
                       if f.lower().endswith((".png", ".jpg", ".jpeg")) and not f.startswith("input")]
             images.sort(key=lambda x: os.path.getmtime(os.path.join(OUTPUT_DIR, x)), reverse=True)
             if not images:
-                ctk.CTkLabel(self._gallery_frame_main, text="No generated images yet",
+                ctk.CTkLabel(frame, text="No generated images yet",
                              font=ctk.CTkFont(size=11), text_color=TEXT_MUTED).pack(pady=20)
+                self._gallery_refreshing = False
                 return
-            for idx, fname in enumerate(images[:12]):
-                fpath = os.path.join(OUTPUT_DIR, fname)
+
+            # Drop cache entries for files that no longer exist.
+            live = set(images)
+            for key in [k for k in self._gallery_thumb_cache if k[0] not in live]:
+                del self._gallery_thumb_cache[key]
+
+            frame.grid_columnconfigure(0, weight=1)
+
+            def _publish(idx, fname, img):
                 try:
-                    img = Image.open(fpath)
-                    img.thumbnail((180, 140))
+                    if not frame.winfo_exists():
+                        return
+                    fpath = os.path.join(OUTPUT_DIR, fname)
                     photo = ImageTk.PhotoImage(img)
-                    lbl = ctk.CTkLabel(self._gallery_frame_main, image=photo, text="",
-                                       fg_color=BG_CARD, corner_radius=6, width=180, height=140)
-                    lbl.image = photo
+                    self._gallery_thumb_cache[(fname, _safe_mtime(fpath))] = photo
+                    lbl = ctk.CTkLabel(frame, image=photo, text="",
+                                      fg_color=BG_CARD, corner_radius=6, width=180, height=140)
+                    lbl.image = photo  # keep PhotoImage alive for the label's life
                     lbl.grid(row=idx // 3, column=idx % 3, padx=6, pady=6, sticky="nw")
                     lbl.bind("<Button-1>", lambda e, fp=fpath: os.startfile(fp))
                     lbl.bind("<Enter>", lambda e, p=fname: self._set_status(p))
                 except Exception:
                     pass
-            self._gallery_frame_main.update_idletasks()
+
+            # --- Worker thread: decode thumbnails, publish to UI thread ---
+            def _worker():
+                try:
+                    for idx, fname in enumerate(images[: self._GALLERY_THUMB_BATCH]):
+                        if not getattr(self, "_gallery_refreshing", False):
+                            return  # superseded
+                        fpath = os.path.join(OUTPUT_DIR, fname)
+                        try:
+                            img = Image.open(fpath)
+                            img.thumbnail((180, 140))
+                            self.root.after(0, _publish, idx, fname, img)
+                        except Exception:
+                            pass
+                finally:
+                    self._gallery_refreshing = False
+                    if getattr(self, "_gallery_needs_refresh", False):
+                        self._gallery_needs_refresh = False
+                        self.root.after(0, self._refresh_gallery_main)
+
+            t = threading.Thread(target=_worker, daemon=True)
+            t.start()
         except Exception:
-            pass
+            self._gallery_refreshing = False
 
     def _build_settings_in_main(self):
         """Build settings content in the main area."""
@@ -1266,6 +1353,57 @@ class ComfyUIApp:
 
         ctk.CTkLabel(self._settings_main, text="Restart backend to apply changes.", font=ctk.CTkFont(size=9),
                      text_color=TEXT_MUTED).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
+
+    def _build_debug_in_main(self):
+        """Build a functional Debug view in the main area (left-sidebar nav target).
+
+        Shows the live app log tail, backend server status, and gives quick actions
+        (refresh log, open log folder). Kept lean and dependency-free.
+        """
+        if hasattr(self, "_debug_main") and self._debug_main:
+            try:
+                self._recursive_destroy(self._debug_main)
+            except Exception:
+                pass
+        self._debug_main = ctk.CTkFrame(self.root, fg_color=BG_SIDEBAR, corner_radius=10)
+        self._debug_main.grid(row=0, column=1, rowspan=4, padx=16, pady=(8, 16), sticky="nsew")
+        self._debug_main.grid_columnconfigure(0, weight=1)
+        self._debug_main.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkFrame(self._debug_main, fg_color=BG_CARD, corner_radius=8)
+        header.grid(row=0, column=0, padx=8, pady=(0, 8), sticky="ew")
+        header.grid_columnconfigure(2, weight=1)
+        ctk.CTkLabel(header, text="Debug Console", font=ctk.CTkFont(size=12, weight="bold"),
+                     text_color=TEXT).grid(row=0, column=0, padx=10, pady=8, sticky="w")
+        refresh_btn = ctk.CTkButton(header, text="Refresh", width=80, height=24,
+                                    command=self._debug_refresh, fg_color=ACCENT2,
+                                    hover_color=ACCENT2_HOVER, text_color="#FFFFFF")
+        refresh_btn.grid(row=0, column=1, padx=6, pady=8, sticky="e")
+        open_btn = ctk.CTkButton(header, text="Open Log", width=90, height=24,
+                                 command=lambda: (os.startfile(LOG_DIR) if os.path.isdir(LOG_DIR) else None),
+                                 fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT)
+        open_btn.grid(row=0, column=2, padx=10, pady=8, sticky="e")
+
+        self._debug_text = ctk.CTkTextbox(self._debug_main, fg_color=BG_CARD_ALT,
+                                          text_color=TEXT, corner_radius=8, wrap="none")
+        self._debug_text.grid(row=1, column=0, padx=8, pady=(0, 8), sticky="nsew")
+        self._debug_refresh()
+
+    def _debug_refresh(self):
+        """Reload the tail of the app log into the debug textbox."""
+        try:
+            box = getattr(self, "_debug_text", None)
+            if not box or not box.winfo_exists():
+                return
+            lines = []
+            if os.path.isfile(LOG_FILE):
+                with open(LOG_FILE, "r", errors="replace") as fh:
+                    lines = fh.readlines()[-400:]
+            box.delete("0.0", "end")
+            box.insert("0.0", "".join(lines) if lines else "No log output yet.")
+            box.see("end")
+        except Exception as e:
+            logging.error("debug_refresh error: %s", e)
 
     # ------------------------------------------------------------------
     # ------------------------------------------------------------------
