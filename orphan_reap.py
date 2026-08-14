@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 import os
+import ctypes
 
 COMFY_PORT = 8188
 SENTINEL = os.path.join(os.getenv("LOCALAPPDATA", os.path.normpath(os.path.expanduser(r"~/AppData/Local"))),
@@ -191,6 +192,157 @@ def reap_orphan_8188(my_pid=None, dry_run=False):
     else:
         print(f"[orphan_reap] WARN: :{COMFY_PORT} still held after reap")
     return pid
+
+# ------------------------------------------------------------------
+# HARDENING (Spark plan port): Windows Job Object + psutil tree reap
+# ------------------------------------------------------------------
+class WindowsJobObject:
+    """Assigns child processes to an OS-level Job Object configured with
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. If this EXE crashes or is
+    force-killed, the Windows kernel terminates the backend AND all of its
+    CUDA/worker grandchildren -- eliminating orphaned :8188 servers.
+
+    Pure ctypes on win32; no-op on other platforms. Never raises in __init__
+    (fails soft), but assign() reports via return value so callers know.
+    """
+
+    # JOBOBJECT_EXTENDED_LIMIT_INFORMATION = 9
+    # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE    = 0x2000
+    _KILL_ON_CLOSE = 0x2000
+
+    def __init__(self):
+        self.handle = None
+        if os.name != "nt":
+            return
+        try:
+            k32 = ctypes.windll.kernel32
+            # Correct prototypes: 64-bit handles must be typed or ctypes
+            # truncates them to 32 bits (returns a NULL/garbage handle).
+            k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+            k32.CreateJobObjectW.restype = ctypes.c_void_p
+            k32.SetInformationJobObject.argtypes = [
+                ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
+            k32.SetInformationJobObject.restype = ctypes.c_int
+            k32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+            k32.OpenProcess.restype = ctypes.c_void_p
+            k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            k32.AssignProcessToJobObject.restype = ctypes.c_int
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            k32.CloseHandle.restype = ctypes.c_int
+            k32.GetLastError.restype = ctypes.c_uint32
+
+            class _BASIC(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", ctypes.c_uint32),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", ctypes.c_uint32),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", ctypes.c_uint32),
+                    ("SchedulingClass", ctypes.c_uint32),
+                ]
+
+            class _IO(ctypes.Structure):
+                _fields_ = [
+                    ("ReadOperationCount", ctypes.c_int64),
+                    ("WriteOperationCount", ctypes.c_int64),
+                    ("OtherOperationCount", ctypes.c_int64),
+                    ("ReadTransferCount", ctypes.c_int64),
+                    ("WriteTransferCount", ctypes.c_int64),
+                    ("OtherTransferCount", ctypes.c_int64),
+                ]
+
+            class _EXT(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", _BASIC),
+                    ("IoInfo", _IO),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryLimit", ctypes.c_size_t),
+                    ("PeakJobMemoryLimit", ctypes.c_size_t),
+                ]
+
+            self.handle = k32.CreateJobObjectW(None, None)
+            if not self.handle:
+                # Guard against passing NULL to SetInformationJobObject below.
+                return
+            info = _EXT()
+            info.BasicLimitInformation.LimitFlags = self._KILL_ON_CLOSE
+            if not k32.SetInformationJobObject(
+                    self.handle, 9, ctypes.byref(info), ctypes.sizeof(info)):
+                # Non-fatal: job still created, just won't force-kill on close.
+                self._kill_on_close = False
+            else:
+                self._kill_on_close = True
+        except Exception:
+            self.handle = None
+
+    def assign(self, pid):
+        """Assign a process (and its future children) to this job.
+
+        Returns True on success, False if the job is unavailable or the
+        assignment failed. Callers (main.start_server) should log the
+        failure rather than assume protection is active.
+        """
+        if not self.handle or not pid:
+            return False
+        try:
+            k32 = ctypes.windll.kernel32
+            # PROCESS_SET_QUOTA (0x100) | PROCESS_TERMINATE (0x1) |
+            # PROCESS_DUP_HANDLE (0x40) for nested assignment.
+            ph = k32.OpenProcess(0x100 | 0x1 | 0x40, False, int(pid))
+            if not ph:
+                return False
+            ok = bool(k32.AssignProcessToJobObject(self.handle, ph))
+            k32.CloseHandle(ph)
+            return ok
+        except Exception:
+            return False
+
+    def __del__(self):
+        if getattr(self, "handle", None):
+            try:
+                ctypes.windll.kernel32.CloseHandle(self.handle)
+            except Exception:
+                pass
+
+
+
+def reap_process_tree(pid, timeout=3.0):
+    """Recursively terminate a process and all descendants via psutil.
+
+    Belt-and-suspenders complement to taskkill /T /F: covers the case where
+    a worker grandchild has already detached from the tracked parent PID.
+    """
+    if not pid:
+        return
+    try:
+        import psutil
+    except Exception:
+        return
+    try:
+        parent = psutil.Process(int(pid))
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+        return
+    try:
+        children = parent.children(recursive=True)
+    except Exception:
+        children = []
+    for child in children:
+        try:
+            child.terminate()
+        except Exception:
+            pass
+    procs = children + [parent]
+    gone, alive = psutil.wait_procs(procs, timeout=timeout)
+    for proc in alive:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
     dr = "--dry-run" in sys.argv

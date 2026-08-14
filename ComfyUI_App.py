@@ -4046,11 +4046,36 @@ class ComfyUIApp:
             custom_args = self.launch_args_str.get().split()
             args = [PYTHON_PATH, "-u", os.path.join(COMFYUI_DIR, MAIN_PY)] + gpu_flag + custom_args
 
+            # HARDENING (Spark plan port): auto-inject --fp16-vae on <=8.5GB cards.
+            # The RTX 2070S (8GB) OOMs during high-res upscale passes with fp32 VAE;
+            # fp16 VAE halves decoder VRAM with no visible quality loss. Only added
+            # when the user hasn't already specified a vae precision flag.
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    _vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+                    if _vram_gb <= 8.5 and not any("vae" in a for a in args):
+                        args.append("--fp16-vae")
+                        logger.info("VRAM auto-tune: %s GB detected -> adding --fp16-vae", _vram_gb)
+            except Exception:
+                pass
+
             log_fh = open(SERVER_LOG_FILE, "w", encoding="utf-8", errors="replace")
             self.backend = subprocess.Popen(
                 args, cwd=COMFYUI_DIR,
                 stdout=log_fh, stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW)
+            # HARDENING (Spark plan port): assign backend to a Windows Job Object so
+            # a crashed/hung EXE cannot leave a detached :8188 server behind. If this
+            # process dies, the kernel reaps the backend AND all CUDA/worker children.
+            try:
+                import orphan_reap
+                if not hasattr(self, "_job_object"):
+                    self._job_object = orphan_reap.WindowsJobObject()
+                if not self._job_object.assign(self.backend.pid):
+                    logging.warning("job-object assign failed - backend not kill-on-close protected")
+            except Exception as _e:
+                logging.warning("job-object assign skipped: %s", _e)
             self._set_status("Loading backend...")
             for i in range(150):
                 if not self._running:
@@ -4082,15 +4107,23 @@ class ComfyUIApp:
 
     def _terminate_backend(self):
         if getattr(self, "backend", None) and self.backend.poll() is None:
+            pid = self.backend.pid
             try:
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                subprocess.run(["taskkill", "/PID", str(self.backend.pid), "/T", "/F"],
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
                                capture_output=True, timeout=5, creationflags=flags)
             except Exception:
                 pass
             try:
                 if self.backend.poll() is None:
                     self.backend.kill()
+            except Exception:
+                pass
+            # HARDENING (Spark plan port): ensure any detached CUDA/worker
+            # grandchildren are gone too (taskkill /T can miss a detached tree).
+            try:
+                import orphan_reap
+                orphan_reap.reap_process_tree(pid)
             except Exception:
                 pass
 
@@ -5303,6 +5336,17 @@ class ComfyUIApp:
         def _shutdown():
             self._terminate_backend()
             self._cleanup_symlinks()
+            # HARDENING (Spark plan port): release the Job Object handle BEFORE the
+            # process fully exits so KILL_ON_JOB_CLOSE doesn't double-kill a backend
+            # we've already terminated cleanly via taskkill above.
+            try:
+                job = getattr(self, "_job_object", None)
+                if job and getattr(job, "handle", None):
+                    import ctypes
+                    ctypes.windll.kernel32.CloseHandle(job.handle)
+                    job.handle = None
+            except Exception:
+                pass
         threading.Thread(target=_shutdown, daemon=True).start()
         # Give a brief moment for the kill to issue, then destroy the window
         try:
