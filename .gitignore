@@ -1,37 +1,87 @@
-.agent_workspace/
+# ---------------------------------------------------------------------------
+# ComfyUI Uncensored — repository ignore rules
+# Source of truth is the Python modules + ComfyUI_Uncensored.spec.
+# Everything below is machine-local, generated, or huge.
+# ---------------------------------------------------------------------------
+
+# --- Python / tooling caches ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Build + deploy artifacts ---
 build/
 dist/
-__pycache__/
-.pytest_cache/
-*.pyc
-*.tmp
-ComfyUI_windows_portable/
-output/
-input/
-logs/
-models_archive/
-backups/
-audit_temp/
-diagnostics/
-*.png
-*.log
-*.txt
-!requirements.txt
-nul
 _last_good/
+_last_good_glass/
+ComfyUIX/
+backups/
 *.exe
+*.zip
+*.7z
+
+# Generated filler blob (build_exe.py writes os.urandom(125MB) to inflate bundle)
+assets/bundle_payload.bin
+ComfyUIX/_internal/assets/bundle_payload.bin
+
+# --- The ComfyUI portable engine (tens of GB, user-supplied, never committed) ---
+ComfyUI_windows_portable/
+
+# --- Model weights ---
 *.safetensors
 *.ckpt
 *.gguf
 *.pth
-# Generated filler blob (build_exe.py writes os.urandom(125MB) to inflate bundle) — never commit
-assets/bundle_payload.bin
-ComfyUIX/_internal/assets/bundle_payload.bin
+*.bin
+models_archive/
 
-# Frozen deploy artifacts (343MB onedir bundle + rollback) — source of truth is main.py + ComfyUIX.spec
-ComfyUIX/
-_last_good_glass/
-build_glass_run.log
+# --- Runtime output / scratch ---
+output/
+input/
+logs/
+diagnostics/
+audit_temp/
+*.log
+*.tmp
+*.bak
+*.orig
+nul
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.webp
 
-# Scratch/planning docs (not app source — keep out of agent context)
+# --- Text scratch: ignore by default, allow the two real manifests ---
+*.txt
+!requirements.txt
+!requirements.lock.txt
+
+# --- Agent / assistant workspaces & scratch planning docs (never app source) ---
+.agent_workspace/
+.hermes/
+.gemini/
+.geminiignore
+GEMINI.md
+AGENTS.md
+CLAUDE.md
+docs/AGENT/
 TAB_DEBUG_PLAN.md
+PROJECT_REFERENCE.md
+
+# --- Retired prototypes / dead trees ---
+spark_plan_qt6/
+qt_app/
+
+# --- Machine-local user config (may contain local paths) ---
+# NOTE: config.json IS tracked as the portable default template;
+# the app writes user overrides next to the EXE at runtime.
+app_config.local.json

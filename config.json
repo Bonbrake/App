@@ -1,5 +1,5 @@
 {
-  "output_dir": "C:\\Users\\user\\Pictures\\ComfyUI_Generated",
+  "output_dir": "~/Pictures/ComfyUI_Generated",
   "vram_threshold": "90% (Default)",
   "default_format": "PNG",
   "default_sampler": "dpmpp_2m",
@@ -9,6 +9,11 @@
   "qol_prompt_history": "1",
   "qol_auto_restart": "1",
   "last_session_txt2img": {
+    "prompt": "a striking photorealistic portrait, sharp facial details, natural skin texture, soft studio rim light, shallow depth of field, 85mm lens, captured with a DSLR, 8k, ultra detailed, cinematic color grade",
+    "negative": "blurry, lowres, deformed, watermark, text"
+  },
+  "target_engine": "Custom Engine (Vulkan 1.4 / SPIR-V)",
+  "last_session_audio": {
     "prompt": "a striking photorealistic portrait, sharp facial details, natural skin texture, soft studio rim light, shallow depth of field, 85mm lens, captured with a DSLR, 8k, ultra detailed, cinematic color grade",
     "negative": "blurry, lowres, deformed, watermark, text"
   }

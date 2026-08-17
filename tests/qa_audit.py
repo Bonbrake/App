@@ -36,8 +36,11 @@ def align_frame_count(n):
         n += 1
     return n
 
-OUTPUT_DIR = r"C:\Users\user\Pictures\ComfyUI_Generated"
-COMFY_INPUT = r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\ComfyUI\input"
+OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "Pictures", "ComfyUI_Generated")
+COMFY_INPUT = os.path.join(
+    os.environ.get("COMFYUI_PORTABLE_DIR", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ComfyUI_windows_portable")),
+    "ComfyUI", "input",
+)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(COMFY_INPUT, exist_ok=True)
 

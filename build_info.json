@@ -1,6 +1,6 @@
 {
-  "build": "2026-08-13 20:34",
+  "build": "2026-08-14 13:59",
   "built_with": "PyInstaller 6.21.0",
-  "repo": "ComfyUI-Desktop",
-  "target": "ComfyUIX (main.py)"
+  "repo": "ComfyUI-Uncensored",
+  "target": "ComfyUI_Uncensored (ComfyUI_App.py)"
 }

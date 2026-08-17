@@ -3,7 +3,7 @@
   <assemblyIdentity
     version="5.0.0.0"
     processorArchitecture="*"
-    name="ComfyUIUncensored.ComfyUI.Desktop"
+    name="ComfyUI.Uncensored.Desktop"
     type="win32"
   />
   <description>ComfyUI Uncensored Desktop Client</description>

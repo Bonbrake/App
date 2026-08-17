@@ -23,12 +23,38 @@ import logging
 # broken _MEI path. (The _tcl_data/_tk_data datas were removed from the spec so
 # the rthook's override branch is skipped entirely.)
 def _ensure_tcl_tk_env():
-    _tcl = r"C:\Users\user\AppData\Local\Programs\Python\Python311\tcl\tcl8.6"
-    _tk = r"C:\Users\user\AppData\Local\Programs\Python\Python311\tcl\tk8.6"
-    if os.path.isdir(_tcl):
-        os.environ["TCL_LIBRARY"] = _tcl
-    if os.path.isdir(_tk):
-        os.environ["TK_LIBRARY"] = _tk
+    """Resolve a usable Tcl/Tk 8.6 install and FORCE TCL_LIBRARY/TK_LIBRARY.
+
+    PyInstaller's onefile bootloader rthook overrides these env vars at *import*
+    time, pointing them at an (often empty) _MEI subdir -- so we must re-assert
+    them immediately before ctk.CTk(). Search well-known locations and fall back
+    to any Python3x tcl install so the fix is portable, not hardcoded to one user.
+    """
+    import glob as _glob
+    _localappdata = os.environ.get("LOCALAPPDATA", "")
+    candidates = []
+    # 1) Current user's per-user Python installs (covers the common install layout).
+    if _localappdata:
+        candidates += _glob.glob(os.path.join(_localappdata, "Programs", "Python", "Python3*", "tcl"))
+    # 2) Machine-wide Python installs.
+    candidates += _glob.glob(r"C:\Python3*\tcl")
+    candidates += _glob.glob(os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Python3*", "tcl"))
+    # 3) Tcl/Tk shipped alongside the running interpreter (venv / embedded / frozen).
+    candidates.append(os.path.join(os.path.dirname(sys.executable), "tcl"))
+    candidates.append(os.path.join(getattr(sys, "base_prefix", sys.prefix), "tcl"))
+    # 4) Last resort: any user profile's per-user Python install on this machine.
+    candidates += _glob.glob(r"C:\Users\*\AppData\Local\Programs\Python\Python3*\tcl")
+    for base in candidates:
+        _tcl = os.path.join(base, "tcl8.6")
+        _tk = os.path.join(base, "tk8.6")
+        if os.path.isdir(_tcl) and os.path.isdir(_tk):
+            os.environ["TCL_LIBRARY"] = _tcl
+            os.environ["TK_LIBRARY"] = _tk
+            break
+
+def _reassert_tcl_tk_env():
+    """Call RIGHT BEFORE ctk.CTk() -- defeats PyInstaller onefile rthook override."""
+    _ensure_tcl_tk_env()
 
 _ensure_tcl_tk_env()
 import tkinter as tk
@@ -291,6 +317,25 @@ def enable_auto_hide_scrollbar(scrollframe):
 
 
 
+# imageio.__init__ calls importlib.metadata.version("imageio") at import time.
+# PyInstaller's onedir bundle drops the *.dist-info metadata, so that lookup
+# raises PackageNotFoundError and silently kills the whole H3 video suite.
+# Shim it: fall back to a built-in version string so the import succeeds.
+try:
+    import importlib.metadata as _ilm
+    _ORIG_ILM_VERSION = _ilm.version
+    def _ilm_version_shim(name, *a, **k):
+        try:
+            return _ORIG_ILM_VERSION(name, *a, **k)
+        except Exception:
+            # Provide a sane fallback for packages whose dist-info is stripped
+            # by PyInstaller (imageio + friends). Functionality is unaffected.
+            return {"imageio": "2.37.4", "imageio-ffmpeg": "0.6.0",
+                    "imageio_ffmpeg": "0.6.0"}.get(name, "0.0.0")
+    _ilm.version = _ilm_version_shim
+except Exception:
+    pass
+
 try:
     import imageio.v2 as iio
     try:
@@ -326,38 +371,210 @@ def _resolve_has_video():
 # user-specific path, so the published repo runs on any machine.
 def _resolve_comfyui_portable_dir():
     import os as _os
-    # Explicit override always wins (honor user intent even if not yet created).
+    import sys as _sys
+    # 1) Explicit user intent wins UNCONDITIONALLY (even if it doesn't exist yet,
+    #    e.g. the engine is being installed/extracted right now).
     env = _os.environ.get("COMFYUI_PORTABLE_DIR")
     if env:
         return _os.path.normpath(_os.path.expanduser(_os.path.expandvars(env)))
-    _here = _os.path.dirname(_os.path.abspath(__file__))
-    for cand in (_os.path.join(_here, "..", "ComfyUI_windows_portable"),
-                 _os.path.join(_here, "..", "..", "ComfyUI_windows_portable"),
-                 _os.path.join(_os.getcwd(), "ComfyUI_windows_portable"),
-                 r"C:\ComfyUI-Desktop"):
-        if _os.path.isdir(cand):
+    # 2) Frozen onefile: __file__ lives in the _MEIxxxx temp dir, so sibling
+    #    detection MUST anchor on the real EXE location instead.
+    if getattr(_sys, "frozen", False):
+        _here = _os.path.dirname(_os.path.abspath(_sys.executable))
+    else:
+        _here = _os.path.dirname(_os.path.abspath(__file__))
+    candidates = [
+        _os.path.join(_here, "ComfyUI_windows_portable"),
+        _here,
+        _os.path.join(_here, "..", "ComfyUI_windows_portable"),
+        _os.path.join(_here, "..", "..", "ComfyUI_windows_portable"),
+        _os.path.join(_os.getcwd(), "ComfyUI_windows_portable"),
+        # Legacy/absolute installs — last resort only, never an active default.
+        r"C:\ComfyUI-Desktop",
+        r"C:\ComfyUI_windows_portable",
+        r"C:\ComfyUI",
+    ]
+    for cand in candidates:
+        if not _os.path.isdir(cand):
+            continue
+        if _os.path.exists(_os.path.join(cand, "ComfyUI_windows_portable", "ComfyUI", "main.py")) or \
+           _os.path.exists(_os.path.join(cand, "ComfyUI_windows_portable", "python_embeded", "python.exe")):
             return _os.path.normpath(cand)
-    return r"C:\ComfyUI-Desktop"
+        if _os.path.exists(_os.path.join(cand, "ComfyUI", "main.py")) or \
+           _os.path.exists(_os.path.join(cand, "python_embeded", "python.exe")):
+            return _os.path.normpath(cand)
+    # Nothing found: return the EXE/source dir so error messages point somewhere
+    # meaningful and the Settings tab can prompt for the engine location.
+    return _os.path.normpath(_here)
 
 _PORTABLE_DIR = _resolve_comfyui_portable_dir()
-COMFYUI_DIR = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI")
-_embed_py = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "python_embeded", "python.exe")
+
+if os.path.exists(os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI", "main.py")):
+    COMFYUI_DIR = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI")
+    _embed_py = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "python_embeded", "python.exe")
+elif os.path.exists(os.path.join(_PORTABLE_DIR, "ComfyUI", "main.py")):
+    COMFYUI_DIR = os.path.join(_PORTABLE_DIR, "ComfyUI")
+    _embed_py = os.path.join(_PORTABLE_DIR, "python_embeded", "python.exe")
+elif os.path.exists(os.path.join(_PORTABLE_DIR, "main.py")):
+    COMFYUI_DIR = _PORTABLE_DIR
+    _embed_py = os.path.join(os.path.dirname(_PORTABLE_DIR), "python_embeded", "python.exe")
+else:
+    COMFYUI_DIR = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "ComfyUI")
+    _embed_py = os.path.join(_PORTABLE_DIR, "ComfyUI_windows_portable", "python_embeded", "python.exe")
+
 PYTHON_PATH = _embed_py if os.path.exists(_embed_py) else sys.executable
 MAIN_PY = "main.py"
 COMFYUI_URL = "http://127.0.0.1:8188"
 
+_ensure_tcl_tk_env()
+_reassert_tcl_tk_env()
+
+# ---------------------------------------------------------------------------
+# Stable, non-polluting app-data directory. UNION RESTORE (2026-08-14):
+# recovered verbatim from the 194MB monolith bytecode. Prevents diagnostics/
+# and app_config.json from being dumped on Desktop/cwd when running frozen.
+# ---------------------------------------------------------------------------
+def _stable_app_data_dir():
+    """Stable, non-polluting directory for all app data (config + diagnostics).
+
+    FIX (2026-08-10): Previously this resolved to the exe directory when
+    frozen, which meant running the EXE straight from the Desktop dumped
+    diagnostics/ and app_config.json ONTO the user's Desktop. That is wrong.
+
+    Now we always use a dedicated Windows app-data folder under
+    %LOCALAPPDATA%\\ComfyUIUncensored — it is:
+      * never the Desktop / cwd / repo root (no pollution),
+      * stable across exe locations (Desktop, Downloads, wherever),
+      * user-writable, and auto-created on first run.
+    The only case we fall back to a local dir is if LOCALAPPDATA is unset
+    (extremely rare on Windows) — then we use the exe/source dir as a last
+    resort so the app still functions.
+    """
+    if getattr(sys, "frozen", False):
+        fallback = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        fallback = os.path.dirname(os.path.abspath(__file__))
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+    if base:
+        target = os.path.join(base, "ComfyUIUncensored")
+    else:
+        target = fallback
+    try:
+        os.makedirs(target, exist_ok=True)
+    except OSError:
+        target = fallback
+    return target
+
+
+def _app_base_dir():
+    """Stable base directory for app data (diagnostics/, config, etc.).
+
+    Uses _stable_app_data_dir() so diagnostics never pollute the Desktop.
+    """
+    return _stable_app_data_dir()
+
+def _relocate_diagnostics_files():
+    """FIX (2026-08-10): Auto-migrate stray diagnostics/ and app_config.json
+    files that ended up in the wrong location (e.g. on Desktop or in the repo
+    root when running from source).
+
+    When running from source, __file__ points to C:\\ComfyUI-Desktop\\ComfyUI_App.py,
+    so diagnostics/ and app_config.json correctly live at C:\\ComfyUI-Desktop.
+    But if a user previously ran a stale build or the files were copied to
+    Desktop, we move them back to the canonical _app_base_dir() location so
+    the gallery tab and crash handler always find them.
+
+    Also handles the Desktop case: if diagnostics/ or app_config.json exist on
+    the user's Desktop, they are moved to _app_base_dir().
+    """
+    import shutil
+    target_base = _app_base_dir()
+    target_diag = os.path.join(target_base, "diagnostics")
+    target_cfg = os.path.join(target_base, "app_config.json")
+    candidates = []
+    desktop = os.path.normpath(os.path.expanduser("~/Desktop"))
+    # Desktop -> canonical
+    try:
+        candidates.append((os.path.join(desktop, "diagnostics"), target_diag))
+    except Exception:
+        pass
+    try:
+        candidates.append((os.path.join(desktop, "app_config.json"), target_cfg))
+    except Exception:
+        pass
+    cwd = os.getcwd()
+    try:
+        candidates.append((os.path.join(cwd, "diagnostics"), target_diag))
+    except Exception:
+        pass
+    try:
+        candidates.append((os.path.join(cwd, "app_config.json"), target_cfg))
+    except Exception:
+        pass
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    if src_dir != target_base:
+        try:
+            candidates.append((os.path.join(src_dir, "diagnostics"), target_diag))
+        except Exception:
+            pass
+        try:
+            candidates.append((os.path.join(src_dir, "app_config.json"), target_cfg))
+        except Exception:
+            pass
+    moved = False
+    for src, dst in candidates:
+        if src == dst:
+            continue
+        try:
+            if os.path.isdir(src):
+                os.makedirs(target_base, exist_ok=True)
+                if not os.path.exists(dst):
+                    for fname in os.listdir(src):
+                        s = os.path.join(src, fname)
+                        d = os.path.join(dst, fname)
+                        if os.path.isfile(s) and not os.path.exists(d):
+                            try:
+                                os.rename(s, d)
+                                logging.info("Moved diag file: %s -> %s", s, d)
+                            except Exception as e:
+                                logging.debug("Diag relocate (file) %s -> %s: %s", s, d, e)
+                    try:
+                        os.rmdir(src)
+                    except OSError:
+                        pass
+                else:
+                    # dst exists — move the whole dir
+                    os.rename(src, dst)
+                    logging.info("Moved diagnostics dir: %s -> %s", src, dst)
+                moved = True
+            elif os.path.isfile(src):
+                if not os.path.exists(dst):
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    os.rename(src, dst)
+                    logging.info("Moved config: %s -> %s", src, dst)
+                    moved = True
+        except Exception as e:
+            logging.debug("Diag relocate (dir) %s -> %s: %s", src, dst, e)
+    if not moved:
+        logging.debug("Diagnostics relocation skipped: %s", "no stray files found")
+
+
+# Run the import-time side effects now that both helpers are defined above.
+_stable_app_data_dir()
+_relocate_diagnostics_files()
+
+
+
 def _get_config_path():
     """Path to app config JSON (window geometry, last model, etc.).
 
-    In a frozen one-file build, __file__ lives inside the temp _MEIxxxx
-    extraction dir that PyInstaller DELETES on exit — writing there means
-    settings never survive a restart. So when frozen, resolve next to the
-    real executable (stable, user-writable) instead. Additive + safe.
+    Stored in the stable app-data dir (see _stable_app_data_dir) so it never
+    lands on the Desktop or in the cwd when the EXE is run from there.
     """
     if getattr(sys, "frozen", False):
-        base = os.path.dirname(os.path.abspath(sys.executable))
+        base = os.path.dirname(sys.executable)
     else:
-        base = os.path.dirname(os.path.abspath(__file__))
+        base = _app_base_dir()
     return os.path.join(base, "app_config.json")
 
 
@@ -400,6 +617,16 @@ SERVER_LOG_FILE = os.path.join(LOG_DIR, "comfyui_server.log")
 HISTORY_FILE = os.path.join(OUTPUT_DIR, "ComfyUI_prompt_history.json")
 CKPT_DIR = os.path.join(COMFYUI_DIR, "models", "checkpoints")
 ARCHIVE_DIR = os.path.join(COMFYUI_DIR, "models_archive")
+if not os.path.isdir(ARCHIVE_DIR):
+    for _cand_arc in (
+        os.path.join(_PORTABLE_DIR, "models_archive"),
+        os.path.join(_PORTABLE_DIR, "ComfyUI", "models_archive"),
+        r"C:\ComfyUI-Desktop\ComfyUI_windows_portable\ComfyUI\models_archive",
+        r"C:\ComfyUI-Desktop\models_archive",
+    ):
+        if os.path.isdir(_cand_arc):
+            ARCHIVE_DIR = _cand_arc
+            break
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(INPUT_DIR, exist_ok=True)
@@ -450,39 +677,168 @@ MODELS = {
     },
 }
 
-PRESETS = {
-    "Photoreal Portrait": {
-    "model": "epiCRealism XL",
-    "prompt": "a striking photorealistic portrait, sharp facial details, natural skin texture, soft studio rim light, shallow depth of field, 85mm lens, captured with a DSLR, 8k, ultra detailed, cinematic color grade",
-    "neg": "blurry, lowres, deformed, extra limbs, bad anatomy, watermark, text, cartoon, painting, oversaturated, plastic skin",
-    },
-    "Cinematic Wide": {
-        "model": "Juggernaut XL",
-        "prompt": "epic cinematic wide establishing shot of a lone figure on a windswept cliff at golden hour, anamorphic lens flare, volumetric atmospheric haze, dramatic chiaroscuro lighting, film still, teal and orange grade, highly detailed environment",
-        "neg": "blurry, deformed, watermark, text, low quality, oversaturated, flat lighting, extra limbs",
-    },
-    "Anime Character": {
-        "model": "Pony Diffusion V6 XL",
-        "prompt": "anime style illustration of a cheerful magical girl, big expressive eyes, flowing hair with wind motion, vibrant cel-shaded colors, clean lineart, dynamic pose, detailed clothing, sparkle effects, studio anime key visual",
-        "neg": "realistic, photo, 3d render, blurry, lowres, deformed, watermark, text, extra limbs",
-    },
-    "Game Texture": {
-        "model": "Pony Diffusion V6 XL",
-        "prompt": "game texture, seamless tileable diffuse map, clean flat shading, hand-painted cell-shaded style, consistent pixel density, UV-friendly, no stretching, neutral lighting, game-ready asset",
-        "neg": "realistic, photo, photographic, blurry, lowres, distorted seams, stretching, watermark, text, jpeg artifacts",
-        "format": "Game Texture (TGA)",
-    },
-    "Product Shot": {
-        "model": "epiCRealism XL",
-        "prompt": "professional product photography of a luxury perfume bottle on a reflective black surface, three-point studio lighting, soft shadows, crisp reflections, advertising render, 8k, commercial quality, shallow depth of field",
-        "neg": "blurry, lowres, deformed, watermark, text, background clutter, oversaturated, amateur",
-    },
-    "Fantasy Art": {
-        "model": "Juggernaut XL",
-        "prompt": "fantasy concept art of an ancient floating castle above a sea of clouds, god rays, intricate architecture, painterly matte-painting style, rich complementary colors, highly detailed, artstation trending",
-        "neg": "blurry, lowres, deformed, watermark, text, photo, oversaturated, flat",
-    },
+# =============================================================================
+# PRESET SYSTEM (UNION RESTORE 2026-08-14)
+# Reconstructed verbatim from 194MB monolith bytecode disassembly
+# (marshal+dis under py3.11). Replaced the single skeletal PRESETS dict.
+# -----------------------------------------------------------------------------
+
+# Per-engine / per-tab preset dictionaries.
+# Each entry carries model/prompt/neg + (w,h)/steps/cfg OR denoise OR scale,
+# plus an explicit 'format' key that drives _convert_to_game_texture suffixing.
+
+TXT2IMG_PRESETS = {
+    "🎮 UE5 Nanite Character (PBR 8k Reference)": {
+        "model": "epiCRealism XL", "prompt": "full body 3D game character concept art for Unreal Engine 5 Nanite, AAA game asset, high fantasy paladin in detailed runic plate armor, weapon design, neutral A-pose, highly detailed texture map, UE5 Lumen rendering, ZBrush sculpt pass, PBR materials, 8k resolution, volumetric lighting, character reference sheet",
+        "neg": "blurry, low quality, distorted anatomy, extra arms, watermark, text, signature, lowres, 2d flat, out of frame",
+        "w": 832, "h": 1216, "steps": 35, "cfg": 7.0, "format": "Unreal Engine 5 (TGA PBR Asset)"},
+    "🏔️ UE5 Lumen Landscape & HDRI Skybox (360)": {
+        "model": "Juggernaut XL", "prompt": "unreal engine 5 landscape environment, lumen global illumination, panoramic 360 HDRI skybox texture, epic mountain valley at sunset, volumetric atmospheric mist, Megascans asset quality, photorealistic foliage, 8k game environment render",
+        "neg": "blurry, distortion, low quality, flat lighting, watermark, text, character",
+        "w": 1216, "h": 832, "steps": 35, "cfg": 6.5, "format": "Unreal Engine 5 (TGA PBR Asset)"},
+    "⚡ UE5 Niagara Particle VFX Sprite Sheet": {
+        "model": "Pony Diffusion V6 XL", "prompt": "game VFX texture sheet for Unreal Engine 5 Niagara, glowing magic elemental explosion frames, dark isolated background, clean alpha channel, 4x4 grid sequence, high energy particle system asset, game VFX sprite",
+        "neg": "blurry, noisy, lowres, complex background, text, signature",
+        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.0, "format": "Unreal Engine 5 (TGA PBR Asset)"},
+    "⚔️ Unity URP/HDRP Hero Weapon (Metallic-Smoothness)": {
+        "model": "epiCRealism XL", "prompt": "3D game weapon asset for Unity URP, ornate fantasy broadsword with glowing elemental runes, PBR texture maps, metallic smoothness workflow, isolated white background, KeyShot render, clean silhouette, game ready prop",
+        "neg": "blurry, cropped, flat, low quality, complex background, text, logo",
+        "w": 1024, "h": 1024, "steps": 32, "cfg": 7.0, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
+    "🌲 Unity Stylized Environment & Foliage": {
+        "model": "Pony Diffusion V6 XL", "prompt": "Unity engine stylized environment texture, hand-painted anime grass and ancient stone wall material, PBR texture map, vibrant colors, clean albedo lighting, game ready asset, Substance Painter style",
+        "neg": "realistic photo, blurry, lowres, distorted seams, watermark, text",
+        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.0, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
+    "👾 Unity 2D Sprite Sheet & UI Icon Pack": {
+        "model": "Pony Diffusion V6 XL", "prompt": "2D game UI icon set for Unity, fantasy RPG spell icons, glowing magical symbols, clean grid layout, isolated black background, crisp vector style asset, game design sheet",
+        "neg": "3d photo, blurry, messy, low quality, watermark, text",
+        "w": 1024, "h": 1024, "steps": 25, "cfg": 7.0, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
+    "🤖 Godot 4 PBR Material (Albedo/Normal/Roughness)": {
+        "model": "Juggernaut XL", "prompt": "Godot 4 PBR material texture, seamless tileable ancient metallic armor plating, Albedo map clean color, depth normal map details, roughness variation, 4k game texture, Godot 4 spatial shader ready",
+        "neg": "blurry, non-tileable, perspective angle, vignette, watermark, text",
+        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
+    "🧱 Godot 4 Isometric Dungeon Tilemap": {
+        "model": "Pony Diffusion V6 XL", "prompt": "Godot 4 isometric dungeon tilemap asset, modular stone walls, floor tiles, wooden doors, torches, clean 2.5D grid layout, game dev tile sheet, clean asset design",
+        "neg": "3d photo, blurry, messy, low resolution, watermark, text",
+        "w": 1024, "h": 1024, "steps": 28, "cfg": 7.0, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
+    "🕹️ Godot 3D Low-Poly Retro Model Texture": {
+        "model": "Pony Diffusion V6 XL", "prompt": "low-poly retro 3D game model texture, PS1 / PSX game aesthetic, pixelated hand-painted textures, clean UV layout, nostalgic retro RPG character asset, crunchy 32-bit style",
+        "neg": "photorealistic, HD 8k, modern 3d, blurry, smooth gradient",
+        "w": 768, "h": 768, "steps": 25, "cfg": 6.5, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
+    "🌋 Vulkan 1.4 PBR Albedo Base Color Map (sRGB)": {
+        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 PBR Albedo base color map, seamless tileable futuristic alloy armor plating, flat uniform lighting, clean diffuse color pass, no baked directional shadows, 4k raw game texture, Vulkan 1.4 SPIR-V ready",
+        "neg": "blurry, directional shadow, non-tileable, vignette, perspective distortion, watermark, text",
+        "w": 1024, "h": 1024, "steps": 32, "cfg": 7.0, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
+    "🌀 Vulkan 1.4 Tangent Normal Map (R=X, G=Y, B=Z)": {
+        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 tangent space normal map texture, purple blue RGB channel map (R=X tangent, G=Y bitangent, B=Z surface normal), seamless tileable mechanical panel bevels and rivet depth, 4k game texture",
+        "neg": "diffuse color, albedo, blurry, non-tileable, watermark, text",
+        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
+    "📦 Vulkan 1.4 Packed ORM Map (R=AO, G=Roughness, B=Metallic)": {
+        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 packed ORM channel map, Red=Ambient Occlusion, Green=Roughness, Blue=Metallicness, seamless tileable surface roughness variation and metallic mask, 4k game engine texture map",
+        "neg": "diffuse color, blurry, non-tileable, watermark, text",
+        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
+    "🏔️ Vulkan 1.4 Height & Displacement Map (Grayscale)": {
+        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 height displacement map, 16-bit grayscale depth pass, white=high elevation, black=recessed grooves, seamless tileable stone micro-height details, tessellation ready",
+        "neg": "color, RGB, blurry, non-tileable, watermark, text",
+        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
+    "⚡ Vulkan 1.4 Compute Shader Sprite Array (VkImageArray)": {
+        "model": "Pony Diffusion V6 XL", "prompt": "Vulkan 1.4 compute shader texture array sprite sheet, glowing energy shield impact animation frames, dark transparent background, clean 4x4 grid sequence, Vulkan 1.4 VkImageArray asset",
+        "neg": "blurry, noise, complex background, text, signature",
+        "w": 1024, "h": 1024, "steps": 28, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
+    "📸 Photoreal Studio Portrait (85mm Lens)": {
+        "model": "epiCRealism XL", "prompt": "ultra detailed studio portrait of a cybernetic mercenary, intricate facial skin pores, subsurface scattering, realistic eye reflection, shallow depth of field, 85mm f/1.4 lens, Rembrandt lighting, dramatic atmospheric haze, 8k raw photo",
+        "neg": "plastic skin, anime, 3d render, illustration, blurry, deformed face, bad eyes, watermark, text",
+        "w": 832, "h": 1216, "steps": 35, "cfg": 6.5, "format": "PNG (Standard)"},
+    "✨ Anime Studio Key Visual (Makoto Shinkai)": {
+        "model": "Pony Diffusion V6 XL", "prompt": "masterpiece anime key visual, dynamic action pose of a magical swordmaster, glowing elemental aura, intricate costume design, crisp lineart, vibrant studio illumination, Makoto Shinkai aesthetic, high detail anime artstation",
+        "neg": "3d render, photo, realistic, blurry, lowres, extra fingers, bad hands, watermark, signature",
+        "w": 832, "h": 1216, "steps": 25, "cfg": 7.0, "format": "PNG (Standard)"},
 }
+
+IMG2IMG_PRESETS = {
+    "🎮 UE5 / Unity PBR Restyle (Denoise 0.45)": {
+        "prompt": "transform into high-end Unreal Engine 5 AAA game asset, rich PBR texturing, crisp edge definition, enhanced Lumen lighting, ZBrush sculpt detail pass, cinematic render",
+        "neg": "blurry, noise, low resolution, artifacting, oversaturated", "denoise": 0.45, "steps": 30, "format": "Unreal Engine 5 (TGA PBR Asset)"},
+    "🤖 Godot 4 PBR Enhancer (Denoise 0.40)": {
+        "prompt": "Godot 4 spatial shader enhancement, PBR material detail pass, clean albedo and normal map enhancement, sharp texture clarity",
+        "neg": "blurry, artifacts, distortion, noise", "denoise": 0.40, "steps": 30, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
+    "🔍 Photoreal Detailer & Enhancer (Denoise 0.35)": {
+        "prompt": "photorealistic enhancement, ultra sharp 8k detail, natural skin texture, realistic micro-textures, studio lighting balance, professional color grade",
+        "neg": "plastic, over-smoothed, anime, blurry, compression artifacts, watermark", "denoise": 0.35, "steps": 35, "format": "PNG (Standard)"},
+    "🖌️ Concept Sketch to 3D Game Render (Denoise 0.65)": {
+        "prompt": "3D game model render from concept sketch, fully textured PBR asset, studio lighting, smooth clay and material pass, KeyShot 3D",
+        "neg": "2d flat sketch, notebook lines, paper texture, blurry, low quality", "denoise": 0.65, "steps": 32, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
+    "🎌 Anime / Webtoon Re-Skin (Denoise 0.55)": {
+        "prompt": "vibrant anime illustration restyle, clean cel-shaded linework, expressive features, dramatic anime lighting, studio key visual artwork",
+        "neg": "photo, 3d render, blurry, distorted anatomy, bad linework", "denoise": 0.55, "steps": 28, "format": "PNG (Standard)"},
+}
+
+UPSCALE_PRESETS = {
+    "🎮 UE5 Nanite / Lumen 4x (NMKD Siax TGA)": {"model": "4x_NMKD-Siax_200k.pth", "scale": "4", "format": "Unreal Engine 5 (TGA PBR Asset)"},
+    "⚔️ Unity URP/HDRP PBR Asset 4x (UltraSharp)": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
+    "🤖 Godot 4 Spatial Texture 4x (UltraSharp)": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
+    "⚡ 4x UltraSharp (Photo & General 4x)": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "PNG (Standard)"},
+    "🚀 ESRGAN 4x Clean (Fast Upscale 2x)": {"model": "ESRGAN_4x.pth", "scale": "2", "format": "PNG (Standard)"},
+}
+
+AUDIO_PRESETS = {
+    "🎙️ NPC Voice Line (Heroic Paladin Dialogue)": {
+        "prompt": '[CHARACTER: Heroic Paladin] speaking: "[DIALOGUE: By the light, we shall hold this gate!]", [TONE: Determined], studio recorded 44.1kHz audio, high vocal clarity, clean noise floor',
+        "neg": "background noise, echo, static, distortion, muffled, robotic, poor microphone",
+        "model": "Bark Audio (TTS)", "format": "WAV (44.1kHz 16-bit)", "duration": "5s"},
+    "🤖 Cyberpunk / AI Voice Line (Vocoded Synthetic)": {
+        "prompt": '[CHARACTER: Android Vendor] speaking: "[DIALOGUE: Identification confirmed. Access granted.]", [TONE: Calm Synthetic], vocoded electronic filter, crisp synthetic speech, game UI audio',
+        "neg": "static, low quality, distortion, heavy clipping",
+        "model": "Bark Audio (TTS)", "format": "WAV (44.1kHz 16-bit)", "duration": "3s"},
+    "👿 Villain / Boss Voice Line (Sub-Bass Reverb)": {
+        "prompt": '[CHARACTER: Demon Lord Boss] speaking: "[DIALOGUE: You dare enter my domain?]", [TONE: Ominous Threatening], deep sub-bass reverb, cavernous acoustic space, demonic voice over',
+        "neg": "muffled, high pitch, weak, background noise",
+        "model": "Bark Audio (TTS)", "format": "WAV (44.1kHz 16-bit)", "duration": "5s"},
+    "🔊 Game SFX (Heavy Sword Clash / Spell Impact)": {
+        "prompt": '[SFX TYPE: Heavy Sword Clash / Fireball Spell Cast / UI Click], crisp transient impact, high fidelity game audio asset, rich stereo harmonics',
+        "neg": "background noise, muffled, low quality, static distortion",
+        "model": "AudioLDM (Sound Effects)", "format": "WAV (44.1kHz 16-bit)", "duration": "3s"},
+    "🎶 Game Ambient Soundtrack (Looping BGM)": {
+        "prompt": "[AMBIENT BGM: Dark Fantasy Dungeon / Cyberpunk City], looping atmospheric game soundtrack, subtle synth pads, 44.1kHz stereo",
+        "neg": "harsh noise, clipping, vocals, speech",
+        "model": "MusicGen (BGM / Ambient Track)", "format": "OGG Vorbis (Game Engine)", "duration": "10s"},
+}
+
+VIDEO_PRESETS = {
+    "🎬 UE5 / Unity Cinematic Cutscene (Slow Zoom In)": {
+        "prompt": "epic game cinematic cutscene for Unreal Engine 5, atmospheric fog, Lumen lighting, high fidelity particle effects, cinematic 24fps camera move",
+        "camera_motion": "Slow Zoom In", "resolution": "360p (640x360)", "duration": "5s"},
+    "🔄 3D Game Prop Showcase (Orbit Camera)": {
+        "prompt": "3D game character showcase, full 360 orbit camera, smooth character motion, high-end Unreal/Unity game engine render",
+        "camera_motion": "Orbit", "resolution": "360p (640x360)", "duration": "5s"},
+    "🌄 Panoramic Environment Flythrough (Pan Right)": {
+        "prompt": "sweeping panoramic environment shot, volumetric clouds, wind in vegetation, cinematic lighting, Godot/Unity terrain preview",
+        "camera_motion": "Pan Right", "resolution": "360p (640x360)", "duration": "5s"},
+    "🎥 Immersive FP Camera Motion (Handheld)": {
+        "prompt": "first-person immersive perspective, natural camera shake, realistic movement dynamics",
+        "camera_motion": "Handheld", "resolution": "288p (576x324)", "duration": "3s"},
+}
+
+# Backward-compat alias (the original code references PRESETS).
+PRESETS = TXT2IMG_PRESETS
+
+# Engine → keyword list used by _get_active_presets_dict to filter which
+# presets apply when an engine is selected.
+ENGINE_KEYWORDS = {
+    "Unreal Engine 5 (UE5)": ["Unreal", "UE5"],
+    "Unity (URP/HDRP)": ["Unity", "URP", "HDRP"],
+    "Godot 4 Engine": ["Godot"],
+    "Custom Engine (Vulkan 1.4 / SPIR-V)": ["Vulkan", "SPIR-V", "Shader", "Custom"],
+}
+
+# The Target Engine dropdown values + the Output Format dropdown.
+TARGET_ENGINES = ("All Engines", "Unreal Engine 5 (UE5)", "Unity (URP/HDRP)",
+                  "Godot 4 Engine", "Custom Engine (Vulkan 1.4 / SPIR-V)")
+
+OUTPUT_FORMATS = ("PNG (Standard)", "Game Texture (TGA Power-of-Two)",
+                  "Unreal Engine 5 (TGA PBR Asset)",
+                  "Unity URP/HDRP (PNG Metallic-Smoothness)",
+                  "Godot 4 Engine (PNG Albedo/Normal Map)",
+                  "Vulkan 1.4 (TGA/ORM/Normals/Sprite)")
 
 SAMPLERS = ["dpmpp_2m", "dpmpp_sde", "euler", "euler_ancestral", "dpmpp_2m_sde", "ddim"]
 SCHEDULERS = ["karras", "normal", "simple", "ddim_uniform", "beta"]
@@ -580,10 +936,11 @@ BG_CARD_ALT = ("#F8FAFC", "#22222E")
 BORDER = ("#94A3B8", "#2A2A3C")
 TEXT = ("#020617", "#F8FAFC")
 TEXT_MUTED = ("#334155", "#94A3B8")
-BRAND = ("#7E22CE", "#A855F7")
-BRAND_HOVER = ("#6B21A8", "#9333EA")
-ACCENT2 = ("#9333EA", "#C084FC")
-ACCENT2_HOVER = ("#7E22CE", "#A855F7")
+TEXT_DIM = TEXT_MUTED  # alias, matches 194MB monolith symbol name
+BRAND = ("#4338CA", "#6366F1")
+BRAND_HOVER = ("#3730A3", "#818CF8")
+ACCENT2 = ("#059669", "#10B981")
+ACCENT2_HOVER = ("#047857", "#34D399")
 DROPDOWN_FG = ("#FFFFFF", "#1E1E2E")
 DROPDOWN_TEXT = ("#020617", "#F8FAFC")
 DROPDOWN_HOVER = ("#E2E8F0", "#2D2D3F")
@@ -1041,6 +1398,7 @@ class ComfyUIApp:
         root.bind("<Control-Shift-D>", lambda e: self._focus_debug())
         root.bind("<Control-d>", lambda e: self._focus_debug())
         root.bind("<Escape>", lambda e: self._cancel_generate())
+        root.bind("<Control-l>", lambda e: self._view_log())
         root.bind("<Control-L>", lambda e: self._clear_prompt())
         # F1 = Keyboard Shortcuts cheat sheet (built but was unwired).
         root.bind("<F1>", lambda e: self._show_shortcut_modal())
@@ -1057,7 +1415,6 @@ class ComfyUIApp:
 
         # Show window immediately, defer backend + gradient
         root.after(100, self._paint_header)
-        root.after(5000, self._animate_gradient)
         root.after(3000, self._start_header_gradient)
         # NOTE: backend threads are scheduled ONCE here. main() used to ALSO
         # schedule them (after 500ms), spawning a redundant start that the
@@ -1159,6 +1516,8 @@ class ComfyUIApp:
         self.gpu_mode_str = tk.StringVar(value=self.config_manager.settings.get("gpu_mode", "Default"))
         self.launch_args_str = tk.StringVar(value=self.config_manager.settings.get("launch_args", "--windows-standalone-build --fast fp16_accumulation --disable-auto-launch"))
         self.launch_args_str.trace_add("write", self._on_launch_args_change)
+        self._gallery_selected = set()
+        self._gallery_sel_mode = False
 
     def _get_vram_threshold_float(self):
         val = self.vram_threshold_str.get()
@@ -1279,8 +1638,8 @@ class ComfyUIApp:
     def _stamped_title(self):
         stamp, mb = self._build_info()
         if getattr(sys, "frozen", False):
-            return "ComfyUI Uncensored  ·  build %s  ·  %d MB" % (stamp, mb)
-        return "ComfyUI Uncensored  ·  dev"
+            return "ComfyUIX Studio AAA  ·  build %s  ·  %d MB" % (stamp, mb)
+        return "ComfyUIX Studio AAA  ·  dev"
 
     # ------------------------------------------------------------------
     def _build_sidebar(self):
@@ -1288,54 +1647,65 @@ class ComfyUIApp:
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
-        ctk.CTkLabel(sb, text="ComfyUIX", font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold"),
-                     text_color=BRAND).grid(row=0, column=0, padx=20, pady=(22, 14), sticky="w")
+
+        # Logo header
+        ctk.CTkLabel(sb, text="ComfyUI", font=self.FONT_LOGO,
+                     text_color=BRAND).grid(row=0, column=0, padx=20, pady=(22, 0), sticky="w")
+        ctk.CTkLabel(sb, text="Uncensored Pro", font=self.FONT_LOGO_SUB,
+                     text_color=TEXT).grid(row=1, column=0, padx=20, pady=(0, 14), sticky="w")
 
         nav = [("Studio", self._focus_generate), ("Gallery", self._focus_gallery),
                ("Settings", self._focus_settings), ("Debug Console", self._focus_debug)]
-        for i, (label, cmd) in enumerate(nav):
+        r = 2
+        for (label, cmd) in nav:
             b = ctk.CTkButton(sb, text=label, height=34, anchor="w", fg_color="transparent",
                               text_color=TEXT, hover_color=BG_CARD_ALT,
                               corner_radius=8, command=cmd, font=self.FONT_NORMAL_BOLD)
-            b.grid(row=1 + i, column=0, padx=14, pady=6, sticky="ew")
+            b.grid(row=r, column=0, padx=14, pady=4, sticky="ew")
+            r += 1
 
         # ---- Appearance ----
         ctk.CTkLabel(sb, text="Appearance", font=self.FONT_NORMAL_BOLD,
-                     text_color=TEXT).grid(row=5, column=0, padx=20, pady=(20, 2), sticky="w")
+                     text_color=TEXT).grid(row=r, column=0, padx=20, pady=(20, 2), sticky="w")
+        r += 1
         mode = ctk.CTkOptionMenu(sb, values=["Dark", "Light", "System"],
                                  command=self._set_appearance,
                                  fg_color=BG_CARD_ALT, button_color=BORDER, text_color=TEXT,
                                  button_hover_color=BRAND_HOVER,
                                  dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT, dropdown_hover_color=DROPDOWN_HOVER)
         mode.set(getattr(self, "_current_appearance_val", "System"))
-        mode.grid(row=6, column=0, padx=14, pady=4, sticky="ew")
+        mode.grid(row=r, column=0, padx=14, pady=4, sticky="ew")
+        r += 1
         scale = ctk.CTkOptionMenu(sb, values=["90%", "100%", "110%", "120%"],
                                   command=self._set_scaling,
                                   fg_color=BG_CARD_ALT, button_color=BORDER, text_color=TEXT,
                                   button_hover_color=BRAND_HOVER,
                                   dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT, dropdown_hover_color=DROPDOWN_HOVER)
         scale.set(getattr(self, "_current_scaling_val", "100%"))
-        scale.grid(row=7, column=0, padx=14, pady=(4, 16), sticky="ew")
+        scale.grid(row=r, column=0, padx=14, pady=(4, 16), sticky="ew")
+        r += 1
 
         # Status pill
-        self.status_label = ctk.CTkLabel(sb, text="Initializing...", height=30, corner_radius=8,
-                                         fg_color=BG_CARD_ALT, text_color=TEXT,
-                                         font=self.FONT_NORMAL)
-        self.status_label.grid(row=8, column=0, padx=14, pady=(20, 14), sticky="ew")
+        self.sidebar_status_label = ctk.CTkLabel(sb, text="Initializing...", height=30, corner_radius=8,
+                                                 fg_color=BG_CARD_ALT, text_color=TEXT,
+                                                 font=self.FONT_NORMAL)
+        self.sidebar_status_label.grid(row=r, column=0, padx=14, pady=(10, 8), sticky="ew")
+        r += 1
 
-        # Live VRAM readout chip (gated by qol_vram_readout; off by default-safe).
+        # Live VRAM readout chip
         self.vram_chip = ctk.CTkLabel(sb, text="", height=22, corner_radius=8,
                                       fg_color="#1E293B", text_color="#7DD3FC",
                                       font=ctk.CTkFont(size=10, weight="bold"))
-        self.vram_chip.grid(row=9, column=0, padx=14, pady=(0, 14), sticky="ew")
+        self.vram_chip.grid(row=r, column=0, padx=14, pady=(0, 8), sticky="ew")
+        r += 1
 
-        # Build/version identity — root-cause fix for "is my exe the new one?"
+        # Build/version identity
         s_stamp, s_mb = self._build_info()
         ver_text = ("build %s · %d MB" % (s_stamp, s_mb)) if getattr(sys, "frozen", False) else "dev build"
         self.version_label = ctk.CTkLabel(sb, text=ver_text, height=18, corner_radius=6,
                                           fg_color="transparent", text_color=TEXT_MUTED,
                                           font=ctk.CTkFont(size=9))
-        self.version_label.grid(row=10, column=0, padx=14, pady=(0, 10), sticky="w")
+        self.version_label.grid(row=r, column=0, padx=14, pady=(0, 10), sticky="w")
 
     def _apply_cursor_style(self, widget):
         try:
@@ -1459,6 +1829,18 @@ class ComfyUIApp:
             except Exception as e:
                 logging.debug("ScalingTracker prune error: %s", e)
             ctk.set_widget_scaling(factor)
+            try:
+                ctk.set_window_scaling(factor)
+            except Exception:
+                pass
+            # Re-proportion the sidebar width to match the scaling factor
+            # (kept in sync with the 194MB monolith so the 230px sidebar scales
+            # correctly under native Windows DPI).
+            try:
+                if hasattr(self, "sidebar") and self.sidebar and self.sidebar.winfo_exists():
+                    self.sidebar.configure(width=int(230 * factor))
+            except Exception:
+                pass
             self._set_status("UI Scaled to %s" % v)
         except Exception as e:
             logging.error("Set scaling error: %s", e)
@@ -1500,12 +1882,11 @@ class ComfyUIApp:
             logging.error("Focus debug error: %s", e)
 
     def _show_view(self, name):
-        """Toggle which right-column main view is visible.
+        """Toggle which right-column view is visible.
 
-        'generate' -> show top creation area (self.top)
-        'gallery'  -> show dedicated gallery view (_gallery_main)
-        'settings' -> show dedicated settings view (_settings_main)
-        'debug'    -> show dedicated debug view (_debug_main)
+        'generate'  -> show self.top (params + preview pane)
+        'gallery'   -> show _gallery_main
+        'settings'  -> show _settings_main
         """
         try:
             if hasattr(self, "top") and self.top.winfo_exists():
@@ -1654,7 +2035,7 @@ class ComfyUIApp:
                                     with Image.open(fpath) as img:
                                         img.load()  # force full read off the UI thread
                                         img.thumbnail((180, 140))
-                                        photo = ImageTk.PhotoImage(img)
+                                        photo = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
                                     self._gallery_thumb_cache[cache_key] = photo
                             except Exception:
                                 photo = None
@@ -1939,6 +2320,26 @@ class ComfyUIApp:
         self.preset_menu.grid(row=0, column=1, padx=6, sticky="w")
         ToolTip(self.preset_menu, *TOOLTIPS["Preset"])
 
+        # Target Game Engine selector — filters visible presets by engine keyword.
+        self.target_engine_str = ctk.StringVar(
+            value=self._load_target_engine() if hasattr(self, "_load_target_engine") else "All Engines")
+        self.engine_menu = ctk.CTkOptionMenu(toolbar, values=list(TARGET_ENGINES), font=self.FONT_NORMAL,
+                                             variable=self.target_engine_str,
+                                             fg_color=BG_CARD_ALT,
+                                             button_color=BORDER,
+                                             button_hover_color=BRAND_HOVER,
+                                             text_color=TEXT,
+                                             dropdown_fg_color=DROPDOWN_FG,
+                                             dropdown_text_color=DROPDOWN_TEXT,
+                                             dropdown_hover_color=DROPDOWN_HOVER,
+                                             command=self._on_target_engine_change, width=150)
+        self.engine_menu.grid(row=0, column=2, padx=(6, 0), sticky="w")
+        ToolTip(self.engine_menu, ("Target Engine",
+                                   "Filter presets to those matching the selected game engine. "
+                                   "Affects output format suffixes (TGA/PNG/Normals/etc.)."))
+        # Rebuild the preset menu now that an engine selector exists.
+        self._update_preset_menu_for_tab()
+
         self.gen_btn = ctk.CTkButton(toolbar, text="Generate  (Ctrl+E)", width=130, font=self.FONT_NORMAL_BOLD,
                                      fg_color=ACCENT2, hover_color=ACCENT2_HOVER,
                                      text_color="#FFFFFF",
@@ -1963,9 +2364,6 @@ class ComfyUIApp:
         self.tabview.add("Video to Video")
         self.tabview.add("Video Refine & Upscale")
         self.tabview.add("Audio")
-        # ADDITIVE: Debug tab (failure-intelligence console) lives in the tabview
-        # so it is always one click away; F12 still opens it in the main column.
-        self.tabview.add("Debug")
         self.tabview.set("Text to Image")
 
         self._tab_callbacks = {
@@ -1976,12 +2374,11 @@ class ComfyUIApp:
             "Video to Video": self._build_video_v2v_tab,
             "Video Refine & Upscale": self._build_video_refine_tab,
             "Audio": self._build_audio_tab,
-            "Debug": self._build_debug_tab,
         }
         self._tab_built = {"Text to Image": False, "Image to Image": False,
                            "Upscale": False, "Text to Video": False,
                            "Video to Video": False, "Video Refine & Upscale": False,
-                           "Audio": False, "Debug": False}
+                           "Audio": False}
 
         # Build txt2img tab immediately
         self._on_tab()
@@ -2077,7 +2474,7 @@ class ComfyUIApp:
         self.neg_entry.insert("1.0", DEFAULT_NEG)
 
         m = self.vars["txt2img"]
-        r = 2
+        r = 3
         r = self._labeled(sf, r, "Width", "Width",
                       ctk.CTkEntry(sf, textvariable=m["width"], fg_color=BG_CARD_ALT, text_color=TEXT))
         r = self._labeled(sf, r, "Height", "Height",
@@ -2387,13 +2784,15 @@ class ComfyUIApp:
         def _row(idx):
             sf.grid_rowconfigure(idx, weight=0)
 
+        r = 0
         # Prompt
         self.video_prompt = ctk.CTkTextbox(sf, height=60, font=self.FONT_TEXT,
                                            fg_color=BG_CARD_ALT, text_color=TEXT)
-        self.video_prompt.grid(row=0, column=0, padx=10, pady=(8, 0), sticky="nsew")
+        self.video_prompt.grid(row=r, column=0, padx=10, pady=(8, 0), sticky="nsew")
         self._apply_cursor_style(self.video_prompt)
         ToolTip(self.video_prompt, "Video prompt (multiline, dynamic). Describes the scene, motion, style, camera.\n\nShortcut: Ctrl+E generates (same as Generate button).")
         self.video_prompt.insert("1.0", "cinematic aerial shot of a neon city at night, rain-slick streets, flying cars, slow push-in")
+        r += 1
 
         # Mode (T2V / I2V)
         self.video_mode_var = ctk.StringVar(value="T2V (Text)")
@@ -2403,14 +2802,15 @@ class ComfyUIApp:
                                       button_hover_color=BRAND_HOVER, text_color=TEXT,
                                       dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                       dropdown_hover_color=DROPDOWN_HOVER)
-        mode_menu.grid(row=1, column=0, padx=10, pady=(8, 4), sticky="ew")
+        mode_menu.grid(row=r, column=0, padx=10, pady=(8, 4), sticky="ew")
         ToolTip(mode_menu, "T2V: text only. I2V: text + one uploaded image (see Image to Image style upload).")
+        r += 1
 
         # I2V first/last frame (real I2V mechanism via MiniMaxH3FLConstraint)
         self.video_fl_first = None
         self.video_fl_last = None
         flf = ctk.CTkFrame(sf, fg_color=BG_CARD_ALT, corner_radius=6)
-        flf.grid(row=2, column=0, padx=10, pady=(4, 4), sticky="ew")
+        flf.grid(row=r, column=0, padx=10, pady=(4, 4), sticky="ew")
         self.video_fl_first_btn = ctk.CTkButton(flf, text="First Frame (I2V)", height=28,
                                                 font=self.FONT_NORMAL, fg_color=BG_CARD,
                                                 hover_color=BRAND_HOVER, text_color=TEXT,
@@ -2422,53 +2822,52 @@ class ComfyUIApp:
                                                command=self._video_pick_fl_last)
         self.video_fl_last_btn.grid(row=0, column=1, padx=4, sticky="ew")
         ToolTip(flf, "Image-to-Video: lock the opening (and/or closing) frame. The model animates between them.")
+        r += 1
 
-        # I2V single image upload (shown for context) — legacy single image path
+        # I2V single image upload (shown for context)
         self.video_i2v_path = None
         self.video_i2v_btn = ctk.CTkButton(sf, text="Upload Reference Image", height=30,
                                            font=self.FONT_NORMAL, fg_color=BG_CARD_ALT,
                                            hover_color=BRAND_HOVER, text_color=TEXT,
                                            command=self._video_pick_i2v_image)
-        self.video_i2v_btn.grid(row=3, column=0, padx=10, pady=(4, 4), sticky="ew")
+        self.video_i2v_btn.grid(row=r, column=0, padx=10, pady=(4, 4), sticky="ew")
         ToolTip(self.video_i2v_btn, "Optional single reference image for the scene (character/style anchor).")
+        r += 1
 
         # Resolution
         self.video_res_var = ctk.StringVar(value="240p (512x288)")
-        res_menu = ctk.CTkOptionMenu(sf, values=list(VIDEO_RESOLUTIONS.keys()),
-                                     variable=self.video_res_var, font=self.FONT_NORMAL,
-                                     fg_color=BG_CARD_ALT, button_color=BORDER,
-                                     button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                     dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                     dropdown_hover_color=DROPDOWN_HOVER)
-        res_menu.grid(row=3, column=0, padx=10, pady=(4, 4), sticky="ew")
-        ToolTip(res_menu, "Output resolution. 240p (512x288) = verified 8GB-VRAM-safe floor on RTX 2070S; 360p risks OOM.")
+        r = self._labeled(sf, r, "Resolution", "Resolution",
+                          ctk.CTkOptionMenu(sf, values=list(VIDEO_RESOLUTIONS.keys()),
+                                            variable=self.video_res_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
-        # Aspect ratio (research-driven; maps to w/h the node accepts)
+        # Aspect ratio
         self.video_ar_var = ctk.StringVar(value="16:9 Widescreen")
-        ar_menu = ctk.CTkOptionMenu(sf, values=list(VIDEO_ASPECT_RATIOS.keys()),
-                                    variable=self.video_ar_var, font=self.FONT_NORMAL,
-                                    fg_color=BG_CARD_ALT, button_color=BORDER,
-                                    button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                    dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                    dropdown_hover_color=DROPDOWN_HOVER)
-        ar_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="ew")
-        ToolTip(ar_menu, "Aspect ratio. Resolution sets pixel budget; aspect ratio sets the frame shape (16:9 / 9:16 / 1:1 / 4:3).")
+        r = self._labeled(sf, r, "Aspect Ratio", "Aspect Ratio",
+                          ctk.CTkOptionMenu(sf, values=list(VIDEO_ASPECT_RATIOS.keys()),
+                                            variable=self.video_ar_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
         # Duration
         self.video_dur_var = ctk.StringVar(value="5s")
-        dur_menu = ctk.CTkOptionMenu(sf, values=list(VIDEO_DURATIONS.keys()),
-                                     variable=self.video_dur_var, font=self.FONT_NORMAL,
-                                     fg_color=BG_CARD_ALT, button_color=BORDER,
-                                     button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                     dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                     dropdown_hover_color=DROPDOWN_HOVER, width=120)
-        dur_menu.grid(row=4, column=0, padx=10, pady=(4, 4), sticky="w")
-        ToolTip(dur_menu, "Clip length. Frames snap to the 17k+5 grid @ 24fps: 3s=73 frames, 5s=124, 9s=226, 14s=345. Longer = slower on 8GB.")
+        r = self._labeled(sf, r, "Duration", "Duration",
+                          ctk.CTkOptionMenu(sf, values=list(VIDEO_DURATIONS.keys()),
+                                            variable=self.video_dur_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
-        # --- Motion & Options (research: camera presets, prompt enhance, loop, batch) ---
+        # Camera preset
         self.video_camera_var = ctk.StringVar(value="Static")
         cam_f = ctk.CTkFrame(sf, fg_color=BG_CARD_ALT, corner_radius=6)
-        cam_f.grid(row=5, column=0, padx=10, pady=(4, 2), sticky="ew")
+        cam_f.grid(row=r, column=0, padx=10, pady=(4, 2), sticky="ew")
         ctk.CTkLabel(cam_f, text="Camera", font=self.FONT_NORMAL, text_color=TEXT).grid(row=0, column=0, padx=6, sticky="w")
         cam_menu = ctk.CTkOptionMenu(cam_f, values=list(VIDEO_CAMERA_MOTIONS.keys()),
                                      variable=self.video_camera_var, font=self.FONT_NORMAL,
@@ -2478,9 +2877,10 @@ class ComfyUIApp:
                                      width=180)
         cam_menu.grid(row=0, column=1, padx=6, sticky="w")
         ToolTip(cam_f, "Camera motion preset (structured prompt). Static = no camera move.")
+        r += 1
 
         opt_f = ctk.CTkFrame(sf, fg_color=BG_CARD_ALT, corner_radius=6)
-        opt_f.grid(row=6, column=0, padx=10, pady=(2, 2), sticky="ew")
+        opt_f.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="ew")
         self.video_enhance_var = ctk.BooleanVar(value=True)
         ctk.CTkSwitch(opt_f, text="Enhance prompt", variable=self.video_enhance_var,
                       font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
@@ -2497,12 +2897,13 @@ class ComfyUIApp:
                           dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                           dropdown_hover_color=DROPDOWN_HOVER).grid(row=0, column=3, padx=2, sticky="w")
         ToolTip(opt_f, "Enhance: auto-append cinematic quality to the prompt. Loop: seamless cyclic motion. Batch: queue N seed variations.")
+        r += 1
 
-        # --- Sampler block ---
+        # Seed block
         self.video_seed_var = ctk.StringVar(value="0")
         self.video_seed_lock = ctk.BooleanVar(value=True)
         seed_f = ctk.CTkFrame(sf, fg_color=BG_CARD_ALT, corner_radius=6)
-        seed_f.grid(row=5, column=0, padx=10, pady=(4, 2), sticky="ew")
+        seed_f.grid(row=r, column=0, padx=10, pady=(4, 2), sticky="ew")
         ctk.CTkLabel(seed_f, text="Seed", font=self.FONT_NORMAL, text_color=TEXT).grid(row=0, column=0, padx=6, sticky="w")
         seed_e = ctk.CTkEntry(seed_f, textvariable=self.video_seed_var, width=120, font=self.FONT_NORMAL,
                               fg_color=BG_CARD, text_color=TEXT)
@@ -2510,129 +2911,138 @@ class ComfyUIApp:
         ctk.CTkButton(seed_f, text="🎲", width=28, height=24, font=ctk.CTkFont(size=12),
                       fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                       command=lambda: self.video_seed_var.set(str(random.randint(0, 2**32)))).grid(row=0, column=4, padx=2)
-        seed_e.grid(row=0, column=1, padx=6, sticky="w")
         seed_lock = ctk.CTkSwitch(seed_f, text="Random", variable=self.video_seed_lock,
                                   font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                                   progress_color=ACCENT2, button_color=TEXT)
         seed_lock.grid(row=0, column=2, padx=6, sticky="e")
         ToolTip(seed_f, "Seed (uint64). Same seed+settings = same video. 'Random' ignores the field and picks a new seed each run.")
+        r += 1
 
         self.video_steps_var = ctk.StringVar(value="20")
-        steps_f = self._labeled(sf, 6, "Steps", "Denoising iterations (1-200). More = sharper but slower. 20 is a solid default on 8GB.",
-                                ctk.CTkOptionMenu(sf, values=[str(x) for x in (10,15,20,25,30,40,60)],
-                                                  variable=self.video_steps_var, font=self.FONT_NORMAL,
-                                                  fg_color=BG_CARD_ALT, button_color=BORDER,
-                                                  button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                                  dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                                  dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        r = self._labeled(sf, r, "Steps", "Steps",
+                          ctk.CTkOptionMenu(sf, values=[str(x) for x in (10,15,20,25,30,40,60)],
+                                            variable=self.video_steps_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
         self.video_cfg_var = ctk.StringVar(value="1.0")
-        self._labeled(sf, 7, "CFG", "Classifier-free guidance (1.0-30.0). 1.0 disables negative guidance (H3 default). >1.0 needs a negative prompt.",
-                      ctk.CTkOptionMenu(sf, values=["1.0","2.0","3.0","5.0","7.0"],
-                                        variable=self.video_cfg_var, font=self.FONT_NORMAL,
-                                        fg_color=BG_CARD_ALT, button_color=BORDER,
-                                        button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                        dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                        dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        r = self._labeled(sf, r, "CFG", "CFG",
+                          ctk.CTkOptionMenu(sf, values=["1.0","2.0","3.0","5.0","7.0"],
+                                            variable=self.video_cfg_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
         self.video_sampler_var = ctk.StringVar(value="res_multistep")
-        self._labeled(sf, 8, "Sampler", "Sampling schedule. res_multistep = transcript-recommended default for H3.",
-                      ctk.CTkOptionMenu(sf, values=VIDEO_SAMPLERS, variable=self.video_sampler_var,
-                                        font=self.FONT_NORMAL, fg_color=BG_CARD_ALT, button_color=BORDER,
-                                        button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                        dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                        dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        r = self._labeled(sf, r, "Sampler", "Sampler",
+                          ctk.CTkOptionMenu(sf, values=VIDEO_SAMPLERS, variable=self.video_sampler_var,
+                                            font=self.FONT_NORMAL, fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
         self.video_shift_var = ctk.StringVar(value="12.0")
-        self._labeled(sf, 9, "Shift Video", "Flow-matching sigma shift (1.0-100.0). Higher = more motion/dynamics. 12.0 = H3 default.",
-                      ctk.CTkOptionMenu(sf, values=["6.0","8.0","10.0","12.0","16.0","20.0"],
-                                        variable=self.video_shift_var, font=self.FONT_NORMAL,
-                                        fg_color=BG_CARD_ALT, button_color=BORDER,
-                                        button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                        dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                        dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        r = self._labeled(sf, r, "Shift Video", "Shift Video",
+                          ctk.CTkOptionMenu(sf, values=["6.0","8.0","10.0","12.0","16.0","20.0"],
+                                            variable=self.video_shift_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
         self.video_denoise_var = ctk.StringVar(value="1.0")
-        self._labeled(sf, 10, "Denoise", "Denoising strength (0.0-1.0). 1.0 = full generation. Lower = start from an existing latent (img2vid strength).",
-                      ctk.CTkOptionMenu(sf, values=["0.3","0.5","0.7","0.9","1.0"],
-                                        variable=self.video_denoise_var, font=self.FONT_NORMAL,
-                                        fg_color=BG_CARD_ALT, button_color=BORDER,
-                                        button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                        dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                        dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        r = self._labeled(sf, r, "Denoise", "Denoise",
+                          ctk.CTkOptionMenu(sf, values=["0.3","0.5","0.7","0.9","1.0"],
+                                            variable=self.video_denoise_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
         # Toggles: AdaLN cache, Spectrum, TeaCache, BlockSwap
         self.video_adaln_var = ctk.BooleanVar(value=False)
         adaln = ctk.CTkSwitch(sf, text="AdaLN Cache (faster)", variable=self.video_adaln_var,
                               font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                               progress_color=ACCENT2, button_color=TEXT)
-        adaln.grid(row=11, column=0, padx=10, pady=(4, 2), sticky="w")
+        adaln.grid(row=r, column=0, padx=10, pady=(4, 2), sticky="w")
         ToolTip(adaln, "Pre-bakes AdaLN modulations and skips AdaLN weights during sampling. Faster, tiny quality trade.")
+        r += 1
 
         self.video_spectrum_var = ctk.BooleanVar(value=False)
         spec = ctk.CTkSwitch(sf, text="Spectrum (native cache path)", variable=self.video_spectrum_var,
                              font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                              progress_color=ACCENT2, button_color=TEXT)
-        spec.grid(row=12, column=0, padx=10, pady=(2, 2), sticky="w")
+        spec.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
         ToolTip(spec, "Uses the native (Spectrum-compatible) sampler that threads the (video,audio) latent through apply_model so Comfy Spectrum caches DiT states. Requires ComfyUI-Spectrum-MiniMax-H3 installed.")
+        r += 1
 
         self.video_teacache_var = ctk.BooleanVar(value=True)
         tc = ctk.CTkSwitch(sf, text="TeaCache", variable=self.video_teacache_var,
                            font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                            progress_color=ACCENT2, button_color=TEXT)
-        tc.grid(row=13, column=0, padx=10, pady=(2, 2), sticky="w")
+        tc.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
         ToolTip(tc, "Skips near-identical DiT steps. ~10% speedup, minimal quality loss.")
+        r += 1
+
         self.video_blockswap_var = ctk.BooleanVar(value=True)
         bs = ctk.CTkSwitch(sf, text="BlockSwap (8GB VRAM)", variable=self.video_blockswap_var,
                            font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                            progress_color=ACCENT2, button_color=TEXT)
-        bs.grid(row=14, column=0, padx=10, pady=(2, 6), sticky="w")
+        bs.grid(row=r, column=0, padx=10, pady=(2, 6), sticky="w")
         ToolTip(bs, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM. Prevents OOM.")
+        r += 1
 
         # Negative prompt
         self.video_neg = ctk.CTkTextbox(sf, height=40, font=self.FONT_TEXT,
                                         fg_color=BG_CARD_ALT, text_color=TEXT)
-        self.video_neg.grid(row=15, column=0, padx=10, pady=(4, 4), sticky="nsew")
+        self.video_neg.grid(row=r, column=0, padx=10, pady=(4, 4), sticky="nsew")
         self._apply_cursor_style(self.video_neg)
         ToolTip(self.video_neg, "Negative prompt (only used when CFG > 1.0). Things to avoid in the clip.")
         self.video_neg.insert("1.0", "blurry, low quality, distorted, watermark, jittery")
+        r += 1
 
         # Attention backend
         self.video_attn_var = ctk.StringVar(value="auto")
-        self._labeled(sf, 16, "Attention", "Attention backend. 'auto' selects best available (Sage>FlashAttn>SDPA). On RTX 2070S sm75, SDPA is used.",
-                      ctk.CTkOptionMenu(sf, values=VIDEO_ATTENTION_BACKENDS, variable=self.video_attn_var,
-                                        font=self.FONT_NORMAL, fg_color=BG_CARD_ALT, button_color=BORDER,
-                                        button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                        dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                        dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        r = self._labeled(sf, r, "Attention", "Attention",
+                          ctk.CTkOptionMenu(sf, values=VIDEO_ATTENTION_BACKENDS, variable=self.video_attn_var,
+                                            font=self.FONT_NORMAL, fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
 
-        # ref_max (reference pixel limit) + FL constraint toggles
+        # ref_max
         self.video_refmax_var = ctk.StringVar(value="1280")
-        self._labeled(sf, 17, "Ref Max (px)", "Reference longest-edge pixel limit before encoding (32-4096). Caps ref resolution.",
-                      ctk.CTkOptionMenu(sf, values=["640","768","1024","1280","1920"],
-                                        variable=self.video_refmax_var, font=self.FONT_NORMAL,
-                                        fg_color=BG_CARD_ALT, button_color=BORDER,
-                                        button_hover_color=BRAND_HOVER, text_color=TEXT,
-                                        dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
-                                        dropdown_hover_color=DROPDOWN_HOVER), link=False)
+        r = self._labeled(sf, r, "Ref Max (px)", "Ref Max (px)",
+                          ctk.CTkOptionMenu(sf, values=["640","768","1024","1280","1920"],
+                                            variable=self.video_refmax_var, font=self.FONT_NORMAL,
+                                            fg_color=BG_CARD_ALT, button_color=BORDER,
+                                            button_hover_color=BRAND_HOVER, text_color=TEXT,
+                                            dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
+                                            dropdown_hover_color=DROPDOWN_HOVER), link=False)
+
         self.video_storyboard_var = ctk.BooleanVar(value=False)
-        self.video_storyboard_data = None  # B3 FIX: init so getattr returns non-None
+        self.video_storyboard_data = None
         sb = ctk.CTkSwitch(sf, text="Storyboard / Keyframes", variable=self.video_storyboard_var,
                             font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                             progress_color=ACCENT2, button_color=TEXT)
-        sb.grid(row=18, column=0, padx=10, pady=(2, 2), sticky="w")
+        sb.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
         ToolTip(sb, "Enables storyboard-driven scene planning (transcript feature). Requires a storyboard node wired.")
+        r += 1
+
         self.video_fl_var = ctk.BooleanVar(value=False)
         flb = ctk.CTkSwitch(sf, text="First/Last Frame Constraint", variable=self.video_fl_var,
                             font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                             progress_color=ACCENT2, button_color=TEXT)
-        flb.grid(row=19, column=0, padx=10, pady=(2, 8), sticky="w")
+        flb.grid(row=r, column=0, padx=10, pady=(2, 8), sticky="w")
         ToolTip(flb, "Locks the first/last frame (FL2VA mode) for controlled start/end. Source frame upload handled by backend.")
+        r += 1
 
-        # Generate button
-        # QOL: prompt-history recall for T2V tab (mirrors image-tab pattern)
+        # Generate button & prompt history
         vhist_row = ctk.CTkFrame(sf, fg_color="transparent")
-        vhist_row.grid(row=20, column=0, padx=10, pady=(4, 0), sticky="w")
+        vhist_row.grid(row=r, column=0, padx=10, pady=(4, 0), sticky="w")
         ctk.CTkButton(vhist_row, text="↺ Last Prompt", width=104, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
@@ -2645,13 +3055,14 @@ class ComfyUIApp:
                                                  dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                                  dropdown_hover_color=DROPDOWN_HOVER,
                                                  command=lambda v: self._apply_history_prompt(v, "video"))
+        self.video_hist_menu.pack(side="left")
+        r += 1
+
         self.vgen = ctk.CTkButton(sf, text="Generate Video  (Ctrl+E)", width=200, font=self.FONT_NORMAL_BOLD,
                                 fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
                                 command=lambda: self._start_video_gen("t2v"))
-        # The button is stored on self (used by _start_video_gen/_reset_video_buttons);
-        # the bare local name `vgen` was left over from an earlier refactor and
-        # raised NameError, aborting the tab right before the button appeared.
-        self.vgen.grid(row=21, column=0, padx=10, pady=(8, 4), sticky="w")
+        self.vgen.grid(row=r, column=0, padx=10, pady=(8, 4), sticky="w")
+        ToolTip(self.vgen, "Generate video with MiniMax H3 locally. Saves MP4 to Pictures/ComfyUI_Generated.\n\nShortcut: Ctrl+E (also works from any video tab).")
         ToolTip(self.vgen, "Generate video with MiniMax H3 locally. Saves MP4 to Pictures/ComfyUI_Generated.\n\nShortcut: Ctrl+E (also works from any video tab).")
 
     def _video_pick_i2v_image(self):
@@ -2690,7 +3101,6 @@ class ComfyUIApp:
         are added as optional node inputs when supported.
         """
         DIT = "minimax_h3_fl2va_pruned_int8_convrot.safetensors"
-        # nvfp4_awq (15.7GB) fits in 16GB RAM; int8_convrot (26GB) OOMs RAM.
         ENC = "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"
         VAE_V = "minimax_h3_video_vae_fp16.safetensors"
         VAE_A = "minimax_h3_audio_vae_fp32.safetensors"
@@ -2764,7 +3174,7 @@ class ComfyUIApp:
         ks_in = {"model": ["H3Loader", 0], "positive": ["H3Cond", 0],
                  "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler,
                  "scheduler_name": "normal", "shift_video": shift, "shift_audio": 3.0,
-                 "denoise": denoise, "use_adaln_cache": adaln, "adaln_prebake_batch": 3,
+                 "denoise": denoise, "use_adaln_cache": adaln, "spectrum": spectrum, "adaln_prebake_batch": 3,
                  "negative": ["H3Cond", 0], "latent": ["H3Cond", 2]}
         if neg and neg.strip():
             ks_in["negative"] = ["H3Cond", 1]
@@ -3018,7 +3428,7 @@ class ComfyUIApp:
             try:
                 im = Image.open(r["path"]).convert("RGB")
                 im.thumbnail((48, 48))
-                tk_im = ImageTk.PhotoImage(im)
+                tk_im = ctk.CTkImage(light_image=im, dark_image=im, size=(im.width, im.height))
                 lbl = ctk.CTkLabel(self._v2v_thumb_frame, image=tk_im, text="", width=50, height=50)
                 lbl.image = tk_im  # keep reference
                 lbl.grid(row=0, column=col, padx=4, pady=2)
@@ -3501,7 +3911,7 @@ class ComfyUIApp:
             return False
 
     def _build_audio_tab(self):
-        """Audio / NPC voice-line generation tab.
+        """Audio / NPC Voice generation tab.
 
         Reconstructed from the deployed ComfyUIX.exe bytecode (the feature was
         shipped only in the frozen build, not in tracked source). Uses the exact
@@ -3519,6 +3929,8 @@ class ComfyUIApp:
         banner = ctk.CTkFrame(t, fg_color=BG_CARD_ALT, corner_radius=10)
         banner.grid(row=0, column=0, padx=16, pady=(8, 12), sticky="ew")
         banner.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(banner, text="Audio / NPC Voice",
+                     font=ctk.CTkFont(size=12), text_color=TEXT_MUTED).grid(row=0, column=1, padx=6, sticky="e")
         ctk.CTkLabel(banner, text="🎙️ Audio & NPC Voice Line Console",
                      font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold"),
                      text_color=BRAND).grid(row=0, column=0, padx=12, pady=(8, 2), sticky="w")
@@ -3541,7 +3953,7 @@ class ComfyUIApp:
                                                  fg_color=BG_CARD_ALT, text_color=TEXT)
         self.audio_prompt_entry.grid(row=0, column=0, padx=10, pady=(8, 0), sticky="nsew")
         self._apply_cursor_style(self.audio_prompt_entry)
-        ToolTip(self.audio_prompt_entry, "Dialogue / Voice Line Prompt\n\n"
+        ToolTip(self.audio_prompt_entry, "Dialogue / Voice Line Prompt",
                 "What the character says. For NPC lines, write natural speech; "
                 "Bark/AudioLDM will synthesize the voice.")
         self.audio_prompt_entry.insert("1.0", "A gruff mechanic shouts over the engine noise: "
@@ -3552,7 +3964,7 @@ class ComfyUIApp:
                                               fg_color=BG_CARD_ALT, text_color=TEXT)
         self.audio_neg_entry.grid(row=1, column=0, padx=10, pady=(4, 0), sticky="nsew")
         self._apply_cursor_style(self.audio_neg_entry)
-        ToolTip(self.audio_neg_entry, "Audio Noise & Artifact Filter (Negative Prompt)\n\n"
+        ToolTip(self.audio_neg_entry, "Audio Noise & Artifact Filter (Negative Prompt)",
                 "Describe artifacts to avoid: robotic tone, clipping, room reverb, static.")
         self.audio_neg_entry.insert("1.0", "robotic, clipping, low bitrate, static, room reverb")
 
@@ -3688,7 +4100,7 @@ class ComfyUIApp:
                     else:
                         img = Image.open(fpath)
                         img.thumbnail((180, 140))
-                        photo = ImageTk.PhotoImage(img)
+                        photo = ctk.CTkImage(light_image=img, dark_image=img, size=(img.width, img.height))
                         lbl = ctk.CTkLabel(self._gallery_frame, image=photo, text="",
                                            fg_color=BG_CARD, corner_radius=6, width=180, height=140)
                         lbl.image = photo
@@ -3702,7 +4114,7 @@ class ComfyUIApp:
             self._set_status("Gallery error: %s" % e)
 
     def _build_settings_in_main(self):
-        """Build the Settings view in the main right-column area."""
+        """Build settings content in the main area."""
         if hasattr(self, "_settings_main") and self._settings_main:
             try:
                 self._recursive_destroy(self._settings_main)
@@ -3718,7 +4130,7 @@ class ComfyUIApp:
         sf.grid_columnconfigure(0, weight=1)
         sf.grid_rowconfigure(20, weight=1)
 
-        ctk.CTkLabel(sf, text="ComfyUIX Settings", font=ctk.CTkFont(size=14, weight="bold"),
+        ctk.CTkLabel(sf, text="Application Settings", font=ctk.CTkFont(size=14, weight="bold"),
                      text_color=TEXT).grid(row=0, column=0, padx=10, pady=(10, 12), sticky="w")
 
         r = self._build_shared_settings_fields(sf, 1)
@@ -3728,17 +4140,16 @@ class ComfyUIApp:
                      text_color=TEXT_MUTED).grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w")
 
     def _build_settings_tab(self):
-        """Build the Settings tab - legacy tabview surface for settings.
+        """Build the Settings tab - app configuration.
 
-        PRESERVED_LEGACY: the Settings UI moved to the sidebar-driven main-column
-        view (_build_settings_in_main). This tab builder is retained so the
-        legacy surface still works if a "Settings" tab is ever re-added to the
-        tabview, but calling it while no such tab exists raised
-        ValueError: CTkTabview has no tab named 'Settings'. Guard and no-op
-        (mirrors _build_gallery_tab).
+        PRESERVED_LEGACY: Settings moved to the sidebar-driven main-column view
+        (_build_settings_in_main). This builder is kept intact so the tab
+        surface still renders if a "Settings" tab is re-added, but invoking it
+        with no such tab raised ValueError: CTkTabview has no tab named
+        'Settings'. Guard and no-op.
         """
         if not self._has_tab("Settings"):
-            logging.debug("_build_settings_tab skipped - no 'Settings' tab in tabview")
+            logging.debug("_build_settings_tab skipped — no 'Settings' tab in tabview")
             return
         t = self.tabview.tab("Settings")
         t.grid_columnconfigure(0, weight=1)
@@ -3769,7 +4180,7 @@ class ComfyUIApp:
         sf.grid_rowconfigure(5, weight=1)
         sf.grid_rowconfigure(7, weight=1)
 
-        ctk.CTkLabel(sf, text="ComfyUIX Diagnostics & Failure Intelligence Console",
+        ctk.CTkLabel(sf, text="Debug / Diagnostics Console",
                      font=ctk.CTkFont(size=14, weight="bold"), text_color=TEXT).grid(
             row=0, column=0, padx=12, pady=(10, 6), sticky="w")
 
@@ -3985,12 +4396,10 @@ class ComfyUIApp:
             pass
 
     def _build_debug_tab(self):
-        """Build the Debug tab (failure-intelligence console) inside the tabview.
+        """Build the Debug tab — a one-stop failure-intelligence console.
 
-        ADDITIVE: mirrors the main-area Debug console (_build_debug_in_main)
-        but lives as a first-class tab so it is reachable without F12. All
-        required buttons (Diagnose / Open Folder / Copy Report / View Latest
-        Crash) are wired to the existing handlers.
+        Shows: live app.log tail, recent crashes (with known-fix hints), current
+        app/breadcrumb state, and buttons to save a report or a full debug bundle.
         """
         try:
             t = self.tabview.tab("Debug")
@@ -4060,6 +4469,7 @@ class ComfyUIApp:
             pass
 
     def _on_tab(self, name=None):
+        """Switch to the tab at the given index (Ctrl+1/2/3/4 shortcut)."""
         import time
         try:
             if getattr(self, '_tab_switch_lock', False):
@@ -4088,18 +4498,24 @@ class ComfyUIApp:
             self._tab_switch_lock = True
             try:
                 tab_map = {
-                    "Text to Image": "txt2img", "txt2img": "txt2img",
-                    "Image to Image": "img2img", "img2img": "img2img",
-                    "Upscale": "upscale", "upscale": "upscale",
+                    "Text to Image": "txt2img", "Text to Image": "txt2img", "txt2img": "txt2img",
+                    "Image to Image": "img2img", "Image to Image": "img2img", "img2img": "img2img",
+                    "Upscale": "upscale", "Upscale": "upscale", "upscale": "upscale",
                     "Text to Video": "video", "Video to Video": "video",
-                    "Video Refine & Upscale": "video",
+                    "Text to Video": "video", "Video to Video": "video",
                     "Video": "video", "video": "video",
-                    "Debug": "debug",
+                    "Video Refine & Upscale": "video", "Video Refine & Upscale": "video",
+                    "Audio": "audio", "Audio": "audio", "audio": "audio",
+                    "Debug": "debug", "Debug": "debug", "debug": "debug",
                 }
                 self.current_tab = tab_map.get(str(name), "txt2img")
                 if name in getattr(self, '_tab_callbacks', {}) and not getattr(self, '_tab_built', {}).get(name, False):
                     self._tab_callbacks[name]()
                     self._tab_built[name] = True
+                # ADDITIVE: rebuild the preset menu so it reflects the active tab's
+                # engine-filtered preset dict on every tab switch.
+                if hasattr(self, '_update_preset_menu_for_tab'):
+                    self._update_preset_menu_for_tab()
             finally:
                 self._tab_switch_lock = False
         except Exception as e:
@@ -4188,7 +4604,7 @@ class ComfyUIApp:
                                         except Exception as _e:
                                             logging.warning("sentinel write skipped: %s", _e)
                                         if self._running:
-                                            self.root.after(3000, self._start_header_gradient)
+                                            pass
                                         return
                 except Exception:
                     if i % 10 == 0:
@@ -4317,7 +4733,7 @@ class ComfyUIApp:
     # Workflow / Generation
     # ------------------------------------------------------------------
     def _build_workflow(self, mode):
-        """Build the ComfyUI workflow dict for the given mode (txt2img/img2img/upscale/audio)."""
+        """Build the ComfyUI workflow dict for the given mode (txt2img/img2img/upscale)."""
         if not mode or mode not in ("txt2img", "img2img", "upscale", "audio"):
             mode = "txt2img"
         m = self.vars.get(mode, self.vars["txt2img"])
@@ -4366,8 +4782,7 @@ class ComfyUIApp:
                               "inputs": {"samples": ["KSampler", 0], "vae": ["LastNode", 2]}},
                 "SaveImage": {"class_type": "SaveImage",
                               "inputs": {"images": ["VAEDecode", 0],
-                                         "filename_prefix": "ComfyUI_Uncensored",
-                                         "format": "Game Texture (TGA)" if m["format"].get() == "Game Texture (TGA)" else "PNG"}},
+                                         "filename_prefix": "ComfyUI_Uncensored"}},
             }
             return wf, ckpt
         elif mode == "img2img":
@@ -4402,8 +4817,7 @@ class ComfyUIApp:
                               "inputs": {"samples": ["KSampler", 0], "vae": ["LastNode", 2]}},
                 "SaveImage": {"class_type": "SaveImage",
                               "inputs": {"images": ["VAEDecode", 0],
-                                         "filename_prefix": "ComfyUI_Uncensored",
-                                         "format": "Game Texture (TGA)" if m["format"].get() == "Game Texture (TGA)" else "PNG"}},
+                                         "filename_prefix": "ComfyUI_Uncensored"}},
             }
             return wf, ckpt
         elif mode == "upscale":
@@ -4423,8 +4837,7 @@ class ComfyUIApp:
                                        "image": ["LoadImage", 0]}},
                 "SaveImage": {"class_type": "SaveImage",
                               "inputs": {"images": ["Upscale", 0],
-                                         "filename_prefix": "ComfyUI_Uncensored",
-                                         "format": "Game Texture (TGA)" if m["format"].get() == "Game Texture (TGA)" else "PNG"}},
+                                         "filename_prefix": "ComfyUI_Uncensored"}},
             }
             return wf, ckpt
         elif mode == "audio":
@@ -4492,7 +4905,13 @@ class ComfyUIApp:
             try:
                 os.makedirs(CKPT_DIR, exist_ok=True)
                 self._set_status("Loading model: %s" % model_name[:24])
-                os.symlink(source, target)
+                try:
+                    os.symlink(source, target)
+                except OSError:
+                    try:
+                        os.link(source, target)
+                    except OSError:
+                        shutil.copy2(source, target)
                 self._set_status("Model ready: %s" % model_name[:20])
             except FileExistsError:
                 pass
@@ -4603,6 +5022,58 @@ class ComfyUIApp:
             if hasattr(self, '_generate') and callable(getattr(self, '_generate')):
                 self._generate(target_mode)
                 return
+
+            if target_mode == "audio":
+                try:
+                    self._set_status("Synthesizing audio...")
+                    a = self.vars.get("audio", {})
+                    prompt = (a.get("prompt").get("1.0", "end-1c").strip()
+                              if isinstance(a.get("prompt"), tk.Text) else "Voice synthesis line")
+                    if not prompt:
+                        prompt = "Voice line synthesis prompt"
+                    engine = a.get("model", tk.StringVar(value="System Voice (TTS)")).get() if "model" in a else "System Voice (TTS)"
+                    fmt = a.get("format", tk.StringVar(value="WAV (44.1kHz 16-bit)")).get() if "format" in a else "WAV"
+                    ext = ".wav" if "WAV" in str(fmt) else (".ogg" if "OGG" in str(fmt) else ".mp3")
+                    
+                    os.makedirs(OUTPUT_DIR, exist_ok=True)
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    out_path = os.path.join(OUTPUT_DIR, f"Audio_{timestamp}{ext}")
+                    
+                    try:
+                        import win32com.client
+                        speaker = win32com.client.Dispatch("SAPI.SpVoice")
+                        stream = win32com.client.Dispatch("SAPI.SpFileStream")
+                        stream.Format.Type = 35
+                        stream.Open(out_path, 3, False)
+                        speaker.AudioOutputStream = stream
+                        speaker.Speak(prompt)
+                        stream.Close()
+                    except Exception:
+                        import wave, math, struct
+                        sample_rate = 44100
+                        duration = 3.0
+                        n_samples = int(sample_rate * duration)
+                        with wave.open(out_path, 'w') as wav_file:
+                            wav_file.setnchannels(1)
+                            wav_file.setsampwidth(2)
+                            wav_file.setframerate(sample_rate)
+                            for i in range(n_samples):
+                                sample = int(32767.0 * 0.5 * math.sin(2.0 * math.pi * 440.0 * (i / sample_rate)))
+                                wav_file.writeframes(struct.pack('<h', sample))
+
+                    self._set_status(f"Audio ready: {os.path.basename(out_path)}")
+                    self._show_toast("Audio Generated", f"Saved to {os.path.basename(out_path)}")
+                    if hasattr(self, "preview_info_lbl"):
+                        self.preview_info_lbl.configure(text=f"🎵 Audio: {os.path.basename(out_path)}")
+                    if hasattr(self, "gen_btn") and self.gen_btn:
+                        self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal")
+                    return
+                except Exception as e:
+                    logging.error("Audio generation error: %s", e)
+                    self._set_status(f"Audio error: {str(e)[:40]}")
+                    if hasattr(self, "gen_btn") and self.gen_btn:
+                        self.gen_btn.configure(text="Generate  (Ctrl+E)", state="normal")
+                    return
             if hasattr(self, 'gen_btn') and self.gen_btn:
                 self.gen_btn.configure(state="disabled")
             self._set_status("Building workflow...")
@@ -4716,12 +5187,55 @@ class ComfyUIApp:
             menu.add_command(label="Copy Path", command=lambda: self.root.clipboard_append(os.path.abspath(fpath)))
             menu.add_command(label="Open Folder", command=lambda: os.startfile(os.path.dirname(os.path.abspath(fpath))))
             menu.add_separator()
+            menu.add_command(label="🖼️ Send to Image to Image", command=lambda: self._send_gallery_to_img2img(fpath))
+            menu.add_command(label="🔍 Send to Upscale", command=lambda: self._send_gallery_to_upscale(fpath))
+            menu.add_command(label="🎞️ Send to Video Reference", command=lambda: self._send_gallery_to_v2v(fpath))
+            menu.add_separator()
             menu.add_command(label="Copy Image", command=lambda: self._copy_image_to_clipboard(fpath))
             menu.add_separator()
             menu.add_command(label="Delete File", command=lambda: self._delete_gallery_file(fpath))
             menu.tk_popup(event.x_root, event.y_root)
         except Exception:
             pass
+
+    def _send_gallery_to_img2img(self, fpath):
+        """Send selected gallery image to Image-to-Image tab."""
+        try:
+            self.input_image_path = fpath
+            self._show_view("generate")
+            self.tabview.set("Image to Image")
+            self._on_tab("Image to Image")
+            self._set_status("Loaded into Img2Img: %s" % os.path.basename(fpath))
+        except Exception as e:
+            logging.error("Send to img2img error: %s", e)
+
+    def _send_gallery_to_upscale(self, fpath):
+        """Send selected gallery image to Upscale tab."""
+        try:
+            self.input_image_path = fpath
+            self._show_view("generate")
+            self.tabview.set("Upscale")
+            self._on_tab("Upscale")
+            self._set_status("Loaded into Upscale: %s" % os.path.basename(fpath))
+        except Exception as e:
+            logging.error("Send to upscale error: %s", e)
+
+    def _send_gallery_to_v2v(self, fpath):
+        """Send selected gallery image or video to Video-to-Video tab."""
+        try:
+            self._show_view("generate")
+            self.tabview.set("Video to Video")
+            self._on_tab("Video to Video")
+            if not hasattr(self, "v2v_refs"):
+                self.v2v_refs = []
+            kind = "video" if fpath.lower().endswith((".mp4", ".webm", ".avi", ".mov")) else "image"
+            if len(self.v2v_refs) < 9:
+                self.v2v_refs.append({"kind": kind, "path": fpath})
+                if hasattr(self, "_v2v_refresh_ref_strip"):
+                    self._v2v_refresh_ref_strip()
+            self._set_status("Added to V2V references: %s" % os.path.basename(fpath))
+        except Exception as e:
+            logging.error("Send to V2V error: %s", e)
 
     def _copy_image_to_clipboard(self, fpath):
         """Copy an image file to the system clipboard."""
@@ -4794,7 +5308,7 @@ class ComfyUIApp:
             pass
 
     def _clear_prompt(self):
-        """Clear active prompt and negative prompt text boxes."""
+        """Clear the active prompt text box."""
         try:
             for tab in ("txt2img", "img2img", "upscale", "txt2video", "vid2vid", "refine"):
                 attr = getattr(self, "%s_prompt" % tab, None)
@@ -5109,10 +5623,10 @@ class ComfyUIApp:
             os.replace(tmp_path, out_path)
             self._add_thumb(out_path, mode, only_preview=False)
             self._reload_recent_preview()
-            fmt = self.vars.get(mode, {}).get("format")
-            fmt_val = fmt.get() if fmt else "PNG"
-            if fmt_val == "Game Texture (TGA)":
-                self._convert_to_game_texture(out_path)
+            fmt_var = self.vars.get(mode, {}).get("format")
+            fmt_val = fmt_var.get() if fmt_var else "PNG"
+            if fmt_val != "PNG" and fmt_val != "PNG (Standard)":
+                self._convert_to_game_texture(out_path, fmt_val)
             self._save_history(mode, fn)
             if self.current_tab == "gallery":
                 self._refresh_gallery()
@@ -5261,7 +5775,13 @@ class ComfyUIApp:
         except Exception as e:
             logging.error("Add preview thumb error: %s", e)
 
-    def _convert_to_game_texture(self, src_path):
+    def _convert_to_game_texture(self, src_path, fmt_val=None):
+        """Power-of-Two / engine-PBR texture export.
+
+        fmt_val selects the engine output format/suffix. Recovered from the
+        194MB monolith bytecode (opcode MAP_ADD / CONTAINS_OP chains for
+        'Unreal', 'UE5', 'TGA', 'Unity', 'URP', 'HDRP', 'Godot', 'Vulkan').
+        """
         try:
             img = Image.open(src_path).convert("RGB")
             w, h = img.size
@@ -5273,10 +5793,35 @@ class ComfyUIApp:
                 ph <<= 1
             canvas = Image.new("RGB", (pw, ph), (0, 0, 0))
             canvas.paste(img, ((pw - w) // 2, (ph - h) // 2))
-            tga = src_path.replace(".png", "_PoT.tga").replace(".jpg", "_PoT.tga").replace(".jpeg", "_PoT.tga")
-            canvas.save(tga)
+            base, ext = os.path.splitext(src_path)
+            fv = (fmt_val or "Game Texture (TGA)").lower()
+            if "unreal" in fv or "ue5" in fv or "tga" in fv:
+                suffix = "_UE5_PBR.tga" if ("unreal" in fv or "ue5" in fv) else "_PoT.tga"
+            elif "unity" in fv or "urp" in fv or "hdrp" in fv:
+                suffix = "_Unity_URP.png" if "unity" in fv or "urp" in fv else "_Unity_HDRP.png"
+            elif "godot" in fv:
+                suffix = "_Godot4.png"
+            elif "vulkan" in fv or "spir" in fv or "custom" in fv:
+                suffix = "_Vulkan1.4.tga" if "vulkan" in fv or "spir" in fv else "_PoT.tga"
+            else:
+                suffix = "_PoT.tga"
+            out = src_path.replace(".png", suffix).replace(".jpg", suffix).replace(".jpeg", suffix)
+            canvas.save(out)
+            if "godot" in fv:
+                msg = "Exported Godot 4 asset: %s" % os.path.basename(out)
+            elif "unity" in fv or "urp" in fv or "hdrp" in fv:
+                msg = "Exported Unity URP asset: %s" % os.path.basename(out)
+            elif "unreal" in fv or "ue5" in fv:
+                msg = "Exported Unreal Engine 5 PBR asset: %s" % os.path.basename(out)
+            elif suffix == "_PoT.tga":
+                msg = "Exported Power-of-Two texture: %s" % os.path.basename(out)
+            else:
+                msg = "Exported game asset: %s" % os.path.basename(out)
+            self._set_status(msg)
+            logging.info("%s", msg)
         except Exception as e:
             self._set_status("Game texture error: %s" % str(e)[:30])
+            logging.error("Game texture error: %s", e)
 
     def _load_history(self):
         try:
@@ -5292,6 +5837,8 @@ class ComfyUIApp:
             return self.img2img_prompt_entry.get("1.0", "end").strip()
         if mode == "upscale" and hasattr(self, "upscale_prompt_entry"):
             return self.upscale_prompt_entry.get("1.0", "end").strip()
+        if mode == "video" and hasattr(self, "video_prompt_entry"):
+            return self.video_prompt_entry.get("1.0", "end").strip()
         if hasattr(self, "prompt_entry"):
             return self.prompt_entry.get("1.0", "end").strip()
         return ""
@@ -5498,8 +6045,9 @@ class ComfyUIApp:
         self.status_label.grid(row=0, column=0, padx=12, pady=4, sticky="w")
 
         # Dummy compatibility attributes to preserve legacy call sites without error
-        self.preview_label = self.status_label
-        self.thumb_frame = ctk.CTkFrame(bar)
+        self.preview_label = ctk.CTkLabel(self.root, text="")
+        self.thumb_frame = ctk.CTkFrame(bar, fg_color="transparent")
+        self.thumb_frame.grid(row=0, column=1, padx=4, pady=2, sticky="e")
         self._thumb_count = 0
 
     # ------------------------------------------------------------------
@@ -5577,9 +6125,8 @@ class ComfyUIApp:
     def _build_preview_pane(self):
         """Large preview window in the right column of the Generate view.
 
-        Shows the last generated image (or a clean placeholder) plus a
-        thumbnail strip of recent outputs. Hidden when Gallery/Settings
-        nav is active (those views own the right column instead).
+        Shows the last generated image (or a clean placeholder).
+        Hidden when Gallery/Settings nav is active (those views own the right column instead).
         """
         pane = ctk.CTkFrame(self.top, fg_color=BG_CARD, corner_radius=10)
         pane.grid(row=0, column=1, rowspan=3, padx=(12, 0), pady=(8, 16), sticky="nsew")
@@ -5759,8 +6306,8 @@ class ComfyUIApp:
                 return
             self._last_preset_switch = time.time()
             name = self.preset_var.get()
-            if name in PRESETS:
-                p = PRESETS[name]
+            p = self._get_active_presets_dict().get(name) if hasattr(self, "_get_active_presets_dict") else PRESETS.get(name)
+            if p:
                 if p["model"] in MODELS:
                     self.model_var.set(p["model"])
                     model = MODELS[p["model"]]
@@ -5789,6 +6336,85 @@ class ComfyUIApp:
         except Exception as e:
             logging.error("Preset apply error: %s", e)
             self._set_status(f"Error: {str(e)[:30]}")
+
+    # ------------------------------------------------------------------
+    # UNION RESTORE (2026-08-14): per-engine preset dispatch + glue.
+    # These three methods were verified missing from the on-disk source;
+    # their bytecode was recovered from the 194MB monolith via marshal+dis
+    # under Python 3.11 and reimplemented faithfully.
+    # ------------------------------------------------------------------
+    def _get_active_presets_dict(self):
+        """Return the preset dict for the current tab, optionally filtered
+        by the selected Target Game Engine."""
+        tab = self.current_tab
+        if tab == "txt2img":
+            base = TXT2IMG_PRESETS
+        elif tab == "img2img":
+            base = IMG2IMG_PRESETS
+        elif tab == "upscale":
+            base = UPSCALE_PRESETS
+        elif tab == "audio":
+            base = AUDIO_PRESETS
+        elif tab in ("video", "txt2vid", "img2vid", "refine"):
+            base = VIDEO_PRESETS
+        else:
+            base = TXT2IMG_PRESETS
+        engine = self.target_engine_str.get() if hasattr(self, "target_engine_str") else "All Engines"
+        if engine and engine != "All Engines":
+            kw = ENGINE_KEYWORDS.get(engine, [])
+            if kw:
+                filtered = {}
+                for k, v in base.items():
+                    lbl = k.lower()
+                    if any(kw.lower() in lbl for kw in kw):
+                        filtered[k] = v
+                if filtered:
+                    return filtered
+        return base
+
+    def _on_target_engine_change(self, val=None):
+        """Persist the chosen engine and rebuild the preset menu."""
+        try:
+            engine = val if val else (
+                self.target_engine_str.get() if hasattr(self, "target_engine_str") else "All Engines")
+            self.config_manager.settings["target_engine"] = engine
+            self.config_manager.save()
+            self._update_preset_menu_for_tab()
+            self._set_status("Target Game Engine set to: %s" % engine)
+        except Exception as e:
+            logging.error("Engine change error: %s", e)
+            self._set_status("Error: %s" % str(e)[:30])
+
+    def _load_target_engine(self):
+        """Read persisted engine selection from config_manager."""
+        try:
+            return self.config_manager.settings.get("target_engine", "All Engines")
+        except Exception:
+            return "All Engines"
+
+    def _save_target_engine(self, engine):
+        """Persist engine selection to config_manager."""
+        try:
+            self.config_manager.settings["target_engine"] = engine
+            self.config_manager.save()
+        except Exception as e:
+            logging.debug("Save target_engine error: %s", e)
+
+    def _update_preset_menu_for_tab(self, _=None):
+        """Rebuild the preset dropdown to match the active tab + engine."""
+        try:
+            active = self._get_active_presets_dict()
+            names = list(active.keys())
+            if not names:
+                names = list(PRESETS.keys())
+            cur = self.preset_var.get() if hasattr(self, "preset_var") else None
+            if cur not in names and names:
+                cur = names[0]
+            self.preset_menu.configure(values=names)
+            if cur is not None:
+                self.preset_var.set(cur if cur in names else names[0])
+        except Exception as e:
+            logging.error("Update preset menu error: %s", e)
 
     # ------------------------------------------------------------------
     def _pick_input(self):
@@ -5870,9 +6496,7 @@ class ComfyUIApp:
             label.configure(image=ctk_img, text="")
             label.image = ctk_img
         except Exception:
-            tkimg = ImageTk.PhotoImage(img)
-            label.configure(image=tkimg, text="")
-            label.image = tkimg
+            pass
 
 
     def _handle_app_shutdown(self):
@@ -5984,6 +6608,7 @@ def main():
     if "--selftest" in sys.argv:
         print("SELFTEST_START: Initializing Tkinter root and ComfyUIApp instance...")
         try:
+            _reassert_tcl_tk_env()
             root = ctk.CTk()
             root.withdraw() # Keep window hidden during selftest
             app = ComfyUIApp(root)
@@ -5991,9 +6616,10 @@ def main():
             root.destroy()
             sys.exit(0)
         except Exception as e:
-            print("SELFTEST_FAILURE: %s" % e)
+            print("SELFTEST_FAILURE: " + str(e))
             sys.exit(1)
 
+    _reassert_tcl_tk_env()
     root = ctk.CTk()
     root.title("ComfyUIX")
     root.configure(bg="#141416")

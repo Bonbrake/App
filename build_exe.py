@@ -48,7 +48,10 @@ try:
     build_meta = {
         "build": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "built_with": "PyInstaller %s" % getattr(PyInstaller, "__version__", "?"),
-        "repo": os.path.basename(REPO_ROOT),
+        # Stable project identity — deliberately NOT basename(REPO_ROOT), which
+        # would leak whatever the local checkout folder happens to be called.
+        "repo": "ComfyUI-Uncensored",
+        "target": "ComfyUI_Uncensored (ComfyUI_App.py)",
     }
     with open(BUILD_INFO, "w") as _bf:
         json.dump(build_meta, _bf, indent=2)

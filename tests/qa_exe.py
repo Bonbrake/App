@@ -31,7 +31,15 @@ except ImportError:
 
 from PyInstaller.utils.cliutils.archive_viewer import CArchiveReader
 
-EXE = r"C:\ComfyUI-Desktop\dist\ComfyUI_Uncensored.exe"
+# Resolve the built EXE relative to this repo (tests/ -> repo root), so the
+# suite runs on any checkout. Override with QA_EXE_PATH if built elsewhere.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXE = os.environ.get("QA_EXE_PATH") or os.path.join(
+    _REPO_ROOT, "dist", "ComfyUI_Uncensored.exe"
+)
+EXE = os.path.normpath(os.path.expanduser(EXE))
+if not os.path.exists(EXE):
+    sys.exit("SKIP: EXE not built yet at %s (run build_exe.py first)" % EXE)
 arch = CArchiveReader(EXE)
 raw = arch.extract("ComfyUI_App")
 try:
