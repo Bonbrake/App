@@ -1,0 +1,35 @@
+MiniMax H3 — AI Search channel video "The BEST local AI video generator is here!" (videoId 8HutJ9W5pTg, 73K views, 15h ago). TRANSCRIPT + DESCRIPTION LINKS — AUTHORITATIVE SOURCE.
+
+=== VIDEO FACTS (transcript) ===
+- Open-source video generator, runs LOCALLY, offline, free, unlimited.
+- As low as 5-6 GB VRAM can run it. Audio built-in (synced stereo). Great character consistency, world knowledge, instruction following, music sync.
+- Multimodal: takes images, video, audio as references.
+- Model sizes: full 66GB -> int8 34GB -> pruned FP8 or pruned int8 = 21GB. Users report running pruned on as low as 12GB VRAM. "if you have even lower VRAM, don't worry."
+- Text encoder = Qwen3-VL-32B ("Quinn 3VL32B"). "this doesn't have to fit on your VRAM" (CPU/RAM offload OK).
+- Ref2Video workflow uses "Gemma 32B" for load clip (alt encoder path).
+- VAE: download BOTH audio VAE and video VAE.
+- Default steps = 20. ~5 min per gen on recent Nvidia GPU.
+- Workflows: T2V (text-to-video), I2V (image-to-video, first/last frame), R2V (reference-to-video, most powerful — images/video/audio refs).
+- R2V: up to 9 ref images, 3 ref videos (own soundtrack), 3 standalone ref audio. ref_image_size match=fast, max=2048px short edge for fidelity.
+
+=== DESCRIPTION LINKS (gospel resources) ===
+- Models: https://huggingface.co/Comfy-Org/MiniMax-H3
+- Workflows + files: https://docs.comfy.org/tutorials/video/minimax/minimax-h3
+- ComfyUI tutorial: https://youtu.be/g74Cq9Ip2ik
+- SageAttention wheels: https://github.com/woct0rdho/SageAttention/releases
+- KJ Nodes: https://github.com/kijai/ComfyUI-KJNodes
+- Spectrum (accel): https://github.com/xmarre/ComfyUI-Spectrum-MiniMax-H3
+- License discussion: https://huggingface.co/MiniMaxAI/MiniMax-H3/discussions/12
+- (hailuoai.pxf.io + platform.minimax.io are CLOUD API — NOT used for local)
+
+=== OFFICIAL COMFYUI DOCS (docs.comfy.org/tutorials/video/minimax/minimax-h3) ===
+Exact model filenames (Comfy-Org/MiniMax-H3 repo):
+- diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors  (T2V/I2V, smallest pruned)
+- diffusion_models/minimax_h3_ref2va_pruned_int8_convrot.safetensors (R2V, smallest pruned)
+- text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors  (or int8_convrot)
+- vae/minimax_h3_video_vae_fp16.safetensors
+- vae/minimax_h3_audio_vae_fp32.safetensors
+Workflow JSONs: https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_t2v.json (+ i2v, + r2v)
+Native canvas: 768px short edge, cap 768x1344, rounded to multiple of 32.
+Duration: snaps to 17-frame-per-block (17k+5) grid @ 24fps.
+SPEED: SageAttention ~2x speed, minimal quality loss. Install wheel matching torch/CUDA, add "Patch Sage Attention KJ" node (KJNodes) OR launch ComfyUI with --use-sage-attention. (Some layers fall back to pytorch attn — expected, works.)

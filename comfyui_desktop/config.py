@@ -9,7 +9,29 @@ import logging
 from pathlib import Path
 
 # Base Directory Resolution
-BASE_DIR = Path(r"C:\ComfyUI-Desktop")
+# Auto-detect the ComfyUI install rather than hardcoding a user-specific path,
+# so the published repo works on any machine. Search order:
+#   1. COMFYUI_PORTABLE_DIR env var (explicit override)
+#   2. ComfyUI_windows_portable as a sibling of this repo
+#   3. ComfyUI_windows_portable under the current working directory
+#   4. C:\ComfyUI-Desktop (legacy default, kept only as a fallback)
+def _resolve_comfyui_portable_dir() -> Path:
+    # 1. Explicit override always wins (honor user intent even if not yet created).
+    env = os.environ.get("COMFYUI_PORTABLE_DIR")
+    if env:
+        return Path(os.path.expanduser(os.path.expandvars(env)))
+    # 2. Auto-detect in order of preference.
+    here = Path(__file__).resolve().parent
+    for cand in (here.parent / "ComfyUI_windows_portable",
+                 here.parent.parent / "ComfyUI_windows_portable",
+                 Path.cwd() / "ComfyUI_windows_portable",
+                 Path(r"C:\ComfyUI-Desktop")):
+        if cand.is_dir():
+            return cand
+    # Fall back to the legacy default even if absent (caller handles missing dir)
+    return Path(r"C:\ComfyUI-Desktop")
+
+BASE_DIR = _resolve_comfyui_portable_dir()
 
 # System Paths
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
@@ -95,6 +117,12 @@ TOOLTIPS = {
     "Format": ("Output Format", "Select PNG or Power-of-Two TGA (for game engine textures).")
 }
 
+def resolve(path):
+    """Expand ~, environment variables, and normalize separators to the OS-native form."""
+    if not path:
+        return ""
+    return os.path.normpath(os.path.expanduser(os.path.expandvars(str(path))))
+
 class ConfigManager:
     """Manages persistent application settings in config.json."""
     def __init__(self, config_path=CONFIG_FILE):
@@ -116,10 +144,19 @@ class ConfigManager:
                     data = json.load(f)
                 self.settings.update(data)
                 global OUTPUT_DIR
-                if "output_dir" in data:
-                    OUTPUT_DIR = data["output_dir"]
+                if "output_dir" in data and data["output_dir"]:
+                    # PRESERVED_LEGACY: Expand ~, env vars, strip whitespace, normalize path safely
+                    out_path = os.path.normpath(os.path.expanduser(os.path.expandvars(str(data["output_dir"]).strip())))
+                    self.settings["output_dir"] = out_path
+                    OUTPUT_DIR = out_path
             except Exception as e:
                 logging.error("Failed to load config.json: %s", e)
+                try:
+                    corrupt_bak = self.config_path + ".corrupt"
+                    if not os.path.exists(corrupt_bak) and os.path.exists(self.config_path):
+                        os.replace(self.config_path, corrupt_bak)
+                except Exception:
+                    pass
 
     def save(self):
         try:

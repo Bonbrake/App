@@ -27,7 +27,7 @@ import requests
 import yaml
 
 # ── Constants ────────────────────────────────────────────────────────────────
-BIONIC_URL       = "http://localhost:5119/v1"
+BIONIC_URL       = "http://localhost:5120/v1"
 CONFIG_PATH      = r"C:\Users\jakeb\AppData\Local\hermes\config.yaml"
 LM_MODELS_DIR    = r"C:\Users\jakeb\.lmstudio\models"
 LMS_CLI          = r"C:\Users\jakeb\AppData\Local\Programs\Bionic\resources\app\.webpack-bionic\lms.exe"
@@ -228,13 +228,13 @@ def run_snapshot(test_live=True):
     # ── Section 2: Server Status ──────────────────────────────────────────
     print_header("SERVER STATUS")
     if server_alive:
-        print(f"  ✓ Bionic/LM Studio API: ALIVE (localhost:5119)")
+        print(f"  ✓ Bionic/LM Studio API: ALIVE (localhost:5120)")
         print(f"  Loaded models: {len(loaded_models)}")
         for m in loaded_models:
             active_tag = " ← CONFIG ACTIVE" if m == config_model else ""
             print(f"    ● {m}{active_tag}")
     else:
-        print(f"  ✗ Bionic/LM Studio API: DOWN (localhost:5119)")
+        print(f"  ✗ Bionic/LM Studio API: DOWN (localhost:5120)")
         print(f"  → Start with: lms server start")
 
     # ── Section 3: GPU Status ─────────────────────────────────────────────

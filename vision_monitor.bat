@@ -8,7 +8,7 @@
 setlocal enabledelayedexpansion
 
 :: --- Configuration ---
-set BIONIC_URL=http://localhost:5119
+set BIONIC_URL=http://localhost:5120
 set OUTPUT_FILE=C:\Users\jakeb\Pictures\vision_benchmark.txt
 
 :: --- Functions ---

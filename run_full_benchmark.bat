@@ -16,12 +16,12 @@ taskkill /F /IM llama-server.exe 2>nul
 timeout /t 2 >nul
 
 REM --- Start server (detached so it lives during this script) ---
-start "" "%BIN%" -m "%DIRV%\Qwen3-VL-4B-Instruct-Uncensored-abliterated.Q4_K_S.gguf" --mmproj "%DIRV%\Qwen3-VL-4B-Instruct-Uncensored-abliterated.mmproj-f16.gguf" --alias qwen3-vl-4b-instruct-uncensored-abliterated -ngl 99 -fa on -kvo -c 32768 -ctk q4_0 -ctv q4_0 -t 16 -tb 16 -b 2048 -ub 512 --reasoning off --mlock --no-warmup --host 127.0.0.1 --port 5119 --sleep-idle-seconds 600 >> "%OUT%" 2>&1
+start "" "%BIN%" -m "%DIRV%\Qwen3-VL-4B-Instruct-Uncensored-abliterated.Q4_K_S.gguf" --mmproj "%DIRV%\Qwen3-VL-4B-Instruct-Uncensored-abliterated.mmproj-f16.gguf" --alias qwen3-vl-4b-instruct-uncensored-abliterated -ngl 99 -fa on -kvo -c 32768 -ctk q4_0 -ctv q4_0 -t 16 -tb 16 -b 2048 -ub 512 --reasoning off --mlock --no-warmup --host 127.0.0.1 --port 5120 --sleep-idle-seconds 600 >> "%OUT%" 2>&1
 
 REM --- Wait for server ready ---
 set READY=0
 for /L %%i in (1,1,30) do (
-  curl -s http://localhost:5119/v1/models >nul 2>&1
+  curl -s http://localhost:5120/v1/models >nul 2>&1
   if !ERRORLEVEL!==0 (
     set READY=1
     echo [server ready after ~%%i sec] >> "%OUT%"

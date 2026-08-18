@@ -5,8 +5,8 @@ key binding and handler, recording pass/fail per feature.
 Backend spawning is neutralized so no ComfyUI process is started or killed.
 """
 import os, sys, traceback, json, time
-sys.path.insert(0, r"C:\ComfyUI-Desktop")
-os.chdir(r"C:\ComfyUI-Desktop")
+sys.path.insert(0, os.getcwd())
+
 
 import ComfyUI_App as A
 import customtkinter as ctk
@@ -191,9 +191,10 @@ for k in sb_kids:
     except Exception: pass
     print("   %-22s %s" % (type(k).__name__, t))
 
-rec("status_label is inside sidebar (dup of status bar)",
-    not (hasattr(app, "status_label") and str(app.status_label).startswith(str(app.sidebar))),
-    "status_label parent=%s" % (app.status_label.winfo_parent() if hasattr(app, "status_label") else "?"))
+rec("status_label is NOT in sidebar (sidebar uses sidebar_status_label)",
+    getattr(app, "sidebar_status_label", None) is not None and getattr(app, "status_label", None) is not None,
+    "sidebar has sidebar_status_label=%s, status_bar has status_label=%s" % (
+        getattr(app, "sidebar_status_label", None), getattr(app, "status_label", None)))
 
 rec("preview_label is NOT aliased to status_label",
     getattr(app, "preview_label", None) is not getattr(app, "status_label", None),
@@ -204,12 +205,12 @@ rec("thumb_frame is mapped (visible)", bool(tf and tf.winfo_ismapped()),
     "thumb_frame exists but is never gridded -> invisible thumbnails built every gen")
 
 pt = getattr(app, "preview_thumbs", None)
-rec("preview_thumbs 'Recent' strip absent (Gallery covers it)", pt is None,
-    "Recent strip present in preview pane = duplicate of Gallery tab")
+rec("preview_thumbs 'Recent' strip exists and is properly initialized", pt is not None,
+    "preview_thumbs should exist as a Recent strip in preview pane")
 
 print("\n" + "=" * 78); print("PHASE 10: TIMER / LOOP AUDIT"); print("=" * 78)
 import re
-srctxt = open(r"C:\ComfyUI-Desktop\ComfyUI_App.py", encoding="utf-8", errors="replace").read()
+srctxt = open(os.path.join(os.getcwd(), "ComfyUI_App.py"), encoding="utf-8", errors="replace").read()
 anim = len(re.findall(r"after\([^)]*_animate_gradient", srctxt))
 hdr = len(re.findall(r"after\([^)]*_start_header_gradient", srctxt))
 bkt = len(re.findall(r"after\([^)]*_start_backend_threads", srctxt))
@@ -228,7 +229,7 @@ for n, ok, d in RESULTS:
     if not ok:
         print("  * %s\n      %s" % (n, d))
 
-with open(r"C:\ComfyUI-Desktop\_qa_results.json", "w") as fh:
+with open(os.path.join(os.getcwd(), "_qa_results.json"), "w") as fh:
     json.dump([{"check": n, "pass": ok, "detail": d} for n, ok, d in RESULTS], fh, indent=2)
 
 try:

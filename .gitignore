@@ -1,0 +1,68 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Distribution / Packaging / Executables
+build/
+dist/
+_last_good/
+*.exe
+*.msi
+*.pkg
+*.spec.bak
+
+# PyInstaller temporary files
+_MEI*
+
+# Temporary & Log files
+*.tmp
+*.log
+nul
+_qa_results.json
+diagnostics/
+audit_temp/
+backups/
+scratch/
+scratch_old_app.py
+ComfyUI_App_backup.py
+ComfyUI_App_full.py
+old_comfyui_copy/
+qa_screens*/
+matrix_qa_screens/
+test_capture.png
+matrix_test_bg.png
+
+# Environments & Workspace
+.env
+.venv
+env/
+venv/
+.agent_workspace/
+.pytest_cache/
+.vscode/
+.idea/
+
+# Large Model Weights (Excluded from Git)
+models/
+models_archive/
+ComfyUI_windows_portable/
+*.safetensors
+*.ckpt
+*.gguf
+*.pth
+*.bin
+*.onnx
+
+# User Data & Output
+output/
+input/
+logs/
+
+# Allow asset images
+!assets/
+!assets/*.png
+!assets/*.ico
+!assets/*.jpg
+!assets/*.svg

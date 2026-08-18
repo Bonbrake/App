@@ -10,7 +10,7 @@ for log_name in log_names:
             lines = f.readlines()
         # Find recent vision/auxiliary/timeout/bionic lines
         matching = [l.strip() for l in lines if any(
-            keyword in l.lower() for keyword in ["vision", "auxiliary", "timeout", "bionic", "aux", "5119"]
+            keyword in l.lower() for keyword in ["vision", "auxiliary", "timeout", "bionic", "aux", "5120"]
         )]
         if matching:
             print(f"=== {log_name} — last {min(len(matching), 15)} matching lines ===")

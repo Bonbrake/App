@@ -11,10 +11,11 @@ PROBLEM (verified on this machine, 2026-07-31):
   region behind the window, blur + periwinkle-tint it, display as the root's
   background label. Verified working on this build.
 """
+import random
 import ctypes
 import time
 import tkinter as tk
-from PIL import Image, ImageFilter, ImageTk
+from PIL import Image, ImageFilter, ImageTk, ImageDraw, ImageFont
 
 user32 = ctypes.windll.user32
 GDI32 = ctypes.windll.gdi32
@@ -23,8 +24,24 @@ CAPTUREBLT = 0x40000000
 BI_RGB = 0
 DIB_RGB_COLORS = 0
 BLUR_RADIUS = 18
-TINT = (60, 60, 70, 60)  # neutral dark blur tint — no purple overlay
+TINT = (0, 20, 8, 80)  # Matrix deep cyber emerald tint
 _CAPTURE_SCALE = 1.0
+
+# Matrix digital glyphs cache
+_MATRIX_GLYPHS = "0123456789ABCDEFｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ=-+*~|<>/\\"
+
+def _get_matrix_font(size=14):
+    for fpath in (
+        r"C:\Windows\Fonts\msgothic.ttc",
+        r"C:\Windows\Fonts\consola.ttf",
+        r"C:\Windows\Fonts\CascadiaCode.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+    ):
+        try:
+            return ImageFont.truetype(fpath, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
 
 
 def _capture_desktop_region(rx, ry, w, h):
@@ -39,27 +56,20 @@ def _capture_desktop_region(rx, ry, w, h):
     import struct
     ctypes.memset(bmi, 0, 40)
     struct.pack_into("i i i i I i i i i i i", bmi, 0, 40, w, -h, 1, 32, 0, 0, 0, 0, 0)
-    GDI32.GetDIBits(hdc_mem, hbmp, 0, h, bmi, ctypes.addressof(ctypes.c_void_p(id(bmi))) if False else bmi)
     import io
     buf = ctypes.create_string_buffer(w * h * 4)
     GDI32.GetDIBits(hdc_mem, hbmp, 0, h, buf, bmi)
     GDI32.DeleteObject(hbmp)
     GDI32.DeleteDC(hdc_mem)
     pixels = buf
-    from PIL import Image
-    from io import BytesIO
     raw = bytes(pixels)
     img = Image.frombuffer("RGBA", (w, h), raw, "raw", "BGRA")
-    img = img.transpose(Image.FLIP_TOP_BOTTOM) if False else img
     user32.ReleaseDC(hwnd_desk, hdc_screen)
     return img
 
 
 def make_acrylic(w, h, root=None, mode=None):
-    """Frosted acrylic EMULATION rendered entirely in PIL/NumPy.
-
-    Supports dynamic appearance modes (Light/Dark/System).
-    """
+    """Frosted Matrix Cyber Glass rendered in PIL/NumPy with digital rain."""
     if mode is None:
         try:
             import customtkinter as ctk
@@ -69,27 +79,58 @@ def make_acrylic(w, h, root=None, mode=None):
 
     w, h = max(1, w), max(1, h)
     if str(mode).lower() == "light":
-        base = Image.new("RGBA", (w, h), (248, 250, 252, 255))
+        base = Image.new("RGBA", (w, h), (240, 253, 244, 255))
         try:
-            frost = make_gradient(w, h, (241, 245, 249), (226, 232, 240), angle=45)
+            frost = make_gradient(w, h, (230, 248, 235), (210, 240, 220), angle=45)
         except Exception:
             frost = base
-        tint = Image.new("RGBA", (w, h), (240, 243, 255, 120))
+        tint = Image.new("RGBA", (w, h), (200, 250, 215, 60))
     else:
-        base = Image.new("RGBA", (w, h), (18, 18, 26, 255))
+        # Deep Matrix Obsidian Green
+        base = Image.new("RGBA", (w, h), (4, 10, 6, 255))
         try:
-            frost = make_gradient(w, h, (34, 34, 48), (20, 20, 30), angle=45)
+            frost = make_gradient(w, h, (3, 8, 5), (10, 24, 15), angle=135)
         except Exception:
             frost = base
         tint = Image.new("RGBA", (w, h), TINT)
 
-    out = Image.alpha_composite(frost, base)
+    out = Image.alpha_composite(base, frost)
     out = Image.alpha_composite(out, tint)
+
+    # Add procedural subtle Matrix digital rain streams
+    try:
+        rain_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(rain_layer)
+        font = _get_matrix_font(13)
+        
+        # Deterministic seed per size for smooth resizing
+        rng = random.Random(42)
+        step_x = 28
+        for x in range(12, w, step_x):
+            stream_len = rng.randint(10, 30)
+            start_y = rng.randint(-300, max(0, h - 100))
+            for i in range(stream_len):
+                y = start_y + i * 18
+                if 0 <= y <= h:
+                    ch = rng.choice(_MATRIX_GLYPHS)
+                    progress = i / stream_len
+                    if i == stream_len - 1:
+                        col = (200, 255, 220, 110)
+                    elif i > stream_len - 3:
+                        col = (0, 255, 102, 90)
+                    else:
+                        alpha = int(8 + progress * 45)
+                        col = (0, int(100 + progress * 100), int(35 + progress * 35), alpha)
+                    d.text((x, y), ch, fill=col, font=font)
+        out = Image.alpha_composite(out, rain_layer)
+    except Exception:
+        pass
+
     return out
 
 
 def make_gradient(w, h, c0, c1, angle=45):
-    """Diagonal gradient (NumPy vectorized — 45x faster than per-pixel PIL loop)."""
+    """Diagonal gradient (NumPy vectorized — fast)."""
     import math
     import numpy as np
     img = np.zeros((h, w, 4), dtype=np.uint8)
@@ -107,17 +148,17 @@ def make_gradient(w, h, c0, c1, angle=45):
 
 
 def make_button_gradient(w, h):
-    """Periwinkle -> violet gradient for the Generate button (color-shift cohesion)."""
-    return make_gradient(w, h, (124, 124, 255), (150, 108, 255), angle=90)
+    """Neon Matrix green gradient for cyber buttons."""
+    return make_gradient(w, h, (0, 255, 102), (0, 204, 85), angle=90)
 
 
 def make_sidebar_gradient(w, h):
-    """Subtle neutral gradient behind the sidebar wordmark area."""
-    return make_gradient(w, h, (38, 38, 54), (28, 28, 40), angle=90)
+    """Subtle matrix dark gradient behind the sidebar logo area."""
+    return make_gradient(w, h, (10, 26, 16), (4, 12, 7), angle=90)
 
 
 def _hue_shift_color(rgb, deg):
-    """Rotate hue of an RGB tuple by deg degrees (for subtle header color-shift)."""
+    """Rotate hue of an RGB tuple by deg degrees for subtle matrix glow animation."""
     import colorsys
     r, g, b = rgb[0] / 255, rgb[1] / 255, rgb[2] / 255
     hh, ss, vv = colorsys.rgb_to_hsv(r, g, b)
@@ -126,15 +167,70 @@ def _hue_shift_color(rgb, deg):
     return (int(r * 255), int(g * 255), int(b * 255))
 
 
+class MatrixRainCanvas(tk.Canvas):
+    """High-Performance Matrix Cyber Background Canvas.
+
+    Renders a clean, ultra-dark obsidian cyber grid with zero background CPU load (0% idle).
+    """
+    CHARS = list("ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ9876543210ABCDEF+-*/<>$#@%&")
+
+    def __init__(self, master, font_size=14, fps=24, **kwargs):
+        kwargs.setdefault("bg", "#040A06")
+        kwargs.setdefault("highlightthickness", 0)
+        super().__init__(master, **kwargs)
+        self.font_size = font_size
+        self.running = False
+        self._resize_job = None
+        self.bind("<Configure>", self._on_resize)
+
+    def _on_resize(self, event=None):
+        if self._resize_job is not None:
+            try:
+                self.after_cancel(self._resize_job)
+            except Exception:
+                pass
+        self._resize_job = self.after(150, self._render_static_grid)
+
+    def _render_static_grid(self):
+        self._resize_job = None
+        try:
+            w = max(10, self.winfo_width())
+            h = max(10, self.winfo_height())
+            self.delete("all")
+            # Subtle deep cyber background fill
+            self.create_rectangle(0, 0, w, h, fill="#040A06", outline="")
+            # Clean cyber boundary grid lines
+            step = max(32, self.font_size * 3)
+            for x in range(0, w, step):
+                self.create_line(x, 0, x, h, fill="#08140C", width=1)
+            for y in range(0, h, step):
+                self.create_line(0, y, w, y, fill="#08140C", width=1)
+        except Exception:
+            pass
+
+    def start(self):
+        self.running = True
+        self._render_static_grid()
+
+    def stop(self):
+        self.running = False
+        if self._resize_job is not None:
+            try:
+                self.after_cancel(self._resize_job)
+            except Exception:
+                pass
+            self._resize_job = None
+
+
 class AcrylicBackground:
     def __init__(self, root, behind=None):
         self.root = root
         self.behind = behind
-        bg_color = "#141416"
+        bg_color = "#040A06"
         try:
             import customtkinter as ctk
             mode = ctk.get_appearance_mode().lower()
-            bg_color = "#F1F5F9" if mode == "light" else "#0F0F12"
+            bg_color = "#F0FDF4" if mode == "light" else "#040A06"
         except Exception:
             pass
         self.label = tk.Label(root, bg=bg_color)
@@ -146,14 +242,14 @@ class AcrylicBackground:
     def _on_configure(self, _e=None):
         if self._job is not None:
             self.root.after_cancel(self._job)
-        self._job = self.root.after(500, self._refresh)
+        self._job = self.root.after(400, self._refresh)
 
     def _refresh(self, immediate=False):
         try:
             try:
                 import customtkinter as ctk
                 mode = ctk.get_appearance_mode().lower()
-                bg_color = "#F1F5F9" if mode == "light" else "#0F0F12"
+                bg_color = "#F0FDF4" if mode == "light" else "#040A06"
                 self.label.configure(bg=bg_color)
             except Exception:
                 pass
@@ -161,7 +257,6 @@ class AcrylicBackground:
             h = self.root.winfo_height()
             if w < 2 or h < 2:
                 return
-            # Skip desktop capture until window is actually mapped/visible
             if not self.root.winfo_ismapped():
                 return
             img = make_acrylic(w, h, self.behind or self.root)
@@ -173,3 +268,5 @@ class AcrylicBackground:
 
     def refresh(self):
         self._refresh(immediate=True)
+
+
