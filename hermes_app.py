@@ -631,6 +631,20 @@ class HermesMatrixApp(QWidget):
         self._setup_tray()
         self._start_poll()
 
+        # Fast IPC show-trigger watcher (< 100ms response to ComfyUI / shortcut focus commands)
+        self._ipc_trigger_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".show_hud")
+        self._ipc_timer = QTimer(self)
+        self._ipc_timer.timeout.connect(self._check_ipc_trigger)
+        self._ipc_timer.start(100)
+
+    def _check_ipc_trigger(self):
+        try:
+            if os.path.isfile(self._ipc_trigger_file):
+                os.remove(self._ipc_trigger_file)
+                self._restore()
+        except Exception:
+            pass
+
     def changeEvent(self, ev):
         # QOL: pause the rain while minimized/hidden to avoid a frozen-then-
         # jumps feel on restore, and to save CPU. Additive only.
@@ -907,7 +921,7 @@ class HermesMatrixApp(QWidget):
         menu.addAction(feed_act)
         menu.addSeparator()
         quit_act = QAction("Exit", self)
-        quit_act.triggered.connect(self._on_exit)
+        quit_act.triggered.connect(self._quit)
         menu.addAction(quit_act)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self._tray_activated)
