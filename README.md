@@ -74,9 +74,16 @@ graph TD
 
 ## 🚀 Installation & Quickstart
 
-### Option 1: Standalone Windows Installer (Recommended)
-1. Download the latest `ComfyUIX_Setup.exe` from [Releases](https://github.com).
-2. Run the installer. It will automatically set up the desktop shortcut and configure paths.
+### Option 1: 1-Click Windows Setup Installer (Recommended)
+<div align="center">
+
+[![Download Setup](https://img.shields.io/badge/Download-ComfyUIX__Setup.exe-00FF66?style=for-the-badge&logo=windows&logoColor=black)](https://github.com/Bonbrake/ComfyUIX/releases/download/v4.1.0/ComfyUIX_Setup.exe)
+[![Direct Executable](https://img.shields.io/badge/Download-ComfyUIX.exe%20(Standalone)-00E5FF?style=for-the-badge&logo=windows&logoColor=black)](https://github.com/Bonbrake/ComfyUIX/releases/download/v4.1.0/ComfyUIX.exe)
+
+</div>
+
+1. Download [**`ComfyUIX_Setup.exe`**](https://github.com/Bonbrake/ComfyUIX/releases/download/v4.1.0/ComfyUIX_Setup.exe) from [GitHub Releases](https://github.com/Bonbrake/ComfyUIX/releases/tag/v4.1.0).
+2. Run the installer. It will automatically install to `C:\Program Files\ComfyUIX`, create high-res desktop shortcuts, and configure the Matrix HUD companion bridge.
 3. Launch **ComfyUIX** from your Desktop or Start Menu.
 
 ### Option 2: Run from Source
