@@ -49,13 +49,24 @@ ComfyUI_crash.txt
 test_pbr_temp*
 test_config_temp*
 
-# Windows binaries and installers
+# Windows binaries, installers & build backups
 *.exe
 *.dat
+unins*
+*.backup.exe
 diagnostics/
+
+# Local runtime state & test reports
+app_config.json
+qa_report.json
+qa_report.md
+hud_crash.log
+history_snapshot.json
 
 # Windows system files
 Thumbs.db
 Desktop.ini
 .show_hud
 .hide_hud
+build_launcher.py
+launcher.cs

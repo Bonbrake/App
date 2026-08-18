@@ -43,7 +43,9 @@ def resolve_app_target() -> tuple:
     
     # 1. Check for standalone EXE in current folder
     exe_cand = os.path.join(here, "ComfyUIX.exe")
-    icon_cand = os.path.join(here, "assets", "app_icon.ico")
+    icon_cand = os.path.join(here, "assets", "comfyuix_app_icon_v5.ico")
+    if not os.path.isfile(icon_cand):
+        icon_cand = os.path.join(here, "assets", "app_icon.ico")
     if not os.path.isfile(icon_cand):
         icon_cand = os.path.join(here, "assets", "app_icon.png")
 
@@ -157,8 +159,13 @@ def verify_and_repair_desktop_shortcut(force_update: bool = False) -> dict:
                 res["success"] = False
                 res["message"] = f"Failed to create desktop shortcut: {pe}"
                 logger.error("Shortcut repair error: %s", pe)
-    else:
-        res["message"] = "Desktop shortcut is verified and healthy."
+    if res["repaired"]:
+        try:
+            import ctypes
+            # SHCNE_ASSOCCHANGED = 0x08000000, SHCNF_IDLIST = 0x0000
+            ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x0000, None, None)
+        except Exception:
+            pass
 
     return res
 

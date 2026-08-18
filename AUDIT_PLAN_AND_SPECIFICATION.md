@@ -1,4 +1,4 @@
-# ComfyUIX Matrix Edition v5.0 — Comprehensive Audit, System Specification & Gap Resolution Matrix
+# ComfyUIX Matrix Edition v5.0 — Master Specification, Architecture & Deep Gap Roadmap
 
 [![Version](https://img.shields.io/badge/version-5.0.0--Matrix-00FF66.svg)](https://github.com/Bonbrake/ComfyUIX)
 [![QA Status](https://img.shields.io/badge/QA%20Tests-110%2F110%20PASSED-00FF66.svg)](https://github.com/Bonbrake/ComfyUIX)
@@ -7,11 +7,9 @@
 
 ---
 
-## 1. Executive Summary & Vision
+## 1. Executive Summary & Architecture
 
-**ComfyUIX Matrix Edition v5.0** is an enterprise-grade, high-performance desktop interface and local AI orchestration suite for generative image, video, audio, and PBR 3D material workflows. Designed as a standalone, zero-hassle application for Windows, it bridges complex node-based diffusion graphs with an ultra-sleek, cyberpunk Matrix dark glass user experience.
-
-This document serves as the **Master Audit Plan and Engineering Specification**, documenting the total closure of all structural gaps, bug fixes, performance optimizations, native creation studios, and multi-angle verification methodologies.
+**ComfyUIX Matrix Edition v5.0** is a standalone, high-performance desktop interface and local AI orchestration suite for generative image, video, audio, and PBR 3D material workflows. Designed as a zero-hassle application for Windows, it bridges complex node-based diffusion graphs with an ultra-sleek, cyberpunk Matrix dark glass user experience.
 
 ```
 +-----------------------------------------------------------------------------------+
@@ -24,27 +22,31 @@ This document serves as the **Master Audit Plan and Engineering Specification**,
 |  * AI Video & Audio Engines                                                       |
 |                                                                                   |
 |  [ Matrix AI HUD Companion ]      <--->  [ Multi-GPU Doctor & Auto-Tuner ]        |
-|  * Hermes LLM Copilot (PySide6)          * VRAM Telemetry & Smart Medvram Tuning   |
+|  * Local LLM Copilot (PySide6)           * VRAM Telemetry & Smart Medvram Tuning   |
 |  * Synchronized IPC & System Tray        * Windows Job Object Tree Reclamation    |
 +-----------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 2. Comprehensive Gap Audit & Resolution Matrix
+## 2. Master 12-Dimension Gap Analysis ("Where Most People Don't Look")
 
-| Engineering Dimension | Pre-Audit Baseline | Matrix Edition v5.0 Resolution | Impact & Benefit |
-| :--- | :--- | :--- | :--- |
-| **Gallery Stability** | `UnboundLocalError` on line 155 during non-recursive folder browsing. | Scope corrected by initializing `ext` before directory condition branches. | Zero-crash gallery indexing across nested and flat folders. |
-| **Error Polling Protocol** | Historical queue errors aborted active generation runs prematurely. | Isolated error checking to `item_id == last_prompt_id` or active session. | Multi-generation batch resilience; historical failures ignored. |
-| **Display Bounds Safety** | Off-screen negative coordinates on secondary monitors caused invisible windows. | Regex-based `_validate_geometry_bounds` validates $+/-$ coordinates against visible screens. | Multi-monitor setups restore cleanly without window loss. |
-| **Code Architecture** | 7 duplicate monolithic methods with competing implementations. | Cleanly consolidated into canonical implementations; AST verification confirms 0 duplicates. | Eliminated 300+ lines of dead code; maintainable code base. |
-| **Path Portability** | Hardcoded user paths (`C:\Users\jakeb\...`, `C:\LocalCoder\...`) scattered across 5 files. | Dynamic resolution via `LOCALAPPDATA`, `sys.executable`, and relative anchors. | Universal compatibility on any Windows machine/user account. |
-| **WebSocket Streaming** | Polling HTTP only; latent streaming required external pip packages. | Implemented pure Python RFC 6455 client with binary JPEG preview frame decoder. | Real-time live generation feedback with zero pip requirements. |
-| **PBR 3D Studio** | No 3D texture map generation. | Built Sobel tangent Normal, Roughness, Height, AO, and $3 \times 3$ Seamless wrap engine. | Complete game-ready material pipeline directly in Gallery. |
-| **Inpainting Studio** | External editing required for masking. | Built interactive canvas with brush radius, paint/erase, mask invert, and staging. | In-app mask painting wired directly into `VAEEncodeForInpaint`. |
-| **Workflow Injection** | Rigid graph builder without dynamic LoRA or custom VAE support. | Dynamic LoRA chaining, custom VAE loader, Hires Fix upscale, and mask encoder. | Full creative control with SDXL, SD1.5, and Flux workflows. |
-| **Hardware Management** | Single GPU detection fallback only. | Added multi-GPU enumeration across PyTorch CUDA, `nvidia-smi`, and WMI fallbacks. | Accurate VRAM telemetry and optimal launch argument tuning. |
+This exhaustive matrix identifies non-obvious, high-impact architectural and creative gaps across the generative AI desktop ecosystem:
+
+| # | Dimension | Current State | The Deep Gap | Recommended Architecture Solution |
+| :- | :--- | :--- | :--- | :--- |
+| **1** | **Adaptive Graph Compilation** | Fixed JSON DAG dictionary | SOTA models (FLUX.1, SD 3.5, Wan 2.1) require completely different node topologies (`DualCLIPLoader`, `EmptySD3LatentImage`, 16-channel latents). | Dynamic Graph Builder querying `/object_info` at startup with architecture auto-detection. |
+| **2** | **Modern Quantization** | Full precision FP16 safetensors | 8GB VRAM cards (RTX 2070/3060/4060) crash with CUDA OOM on FLUX or Wan 2.1. | Native GGUF (`UnetLoaderGGUF`) & FP8/NF4 (`bitsandbytes`) integration with precision selectors. |
+| **3** | **Multi-LoRA Stacking** | Single LoRA dropdown | Professional creators stack 3–5 LoRAs simultaneously (Character + Style + Clothing + Detailer). | Dynamic LoRA Stacker interface with independent UNet/CLIP weights and auto-trigger insertion. |
+| **4** | **Parameter Re-Hydration** | Gallery displays thumbnails only | ComfyUI embeds full generation DAGs in PNG `tEXt` chunks; ComfyUIX doesn't extract them. | 1-Click PNG metadata reader restoring full Prompt, Seed, Model, Steps, CFG, and Samplers to UI. |
+| **5** | **LLM Prompt Expansion** | HUD runs in isolated window | Users must manually copy-paste prompt enhancements between windows. | 1-Click "⚡ Enhance Prompt" button querying local LLM (Ollama/LM Studio/Proxy) directly in GUI. |
+| **6** | **ControlNet Guidance** | Unconditional generation | No native OpenPose, DepthAnything V2, Canny, or Tile guidance controls in the GUI. | Multi-ControlNet Studio with integrated preprocessors and strength sliders. |
+| **7** | **Semantic Auto-Masking** | Manual brush painting only | Inpainting complex clothing/objects by hand is tedious and imprecise. | Segment Anything 2 (SAM 2) text-prompt auto-segmentation (`"sunglasses"`, `"red jacket"`). |
+| **8** | **Automated Face Detailer** | Manual crop-and-inpaint | Far portraits generate distorted eyes/hands without dedicated face restoration passes. | Automated YOLOv8-face / SEGS bounding-box detection, hires inpaint, and alpha blendback. |
+| **9** | **Hyperparameter Grid (XY)** | Single generation sweeps | No way to compare CFG vs Steps or Sampler vs Scheduler across a 2D matrix. | XY Plot & Grid Search Generator producing side-by-side comparative matrices. |
+| **10** | **Temporal Video Synthesis** | Basic frame/fps sliders | Video outputs suffer from low framerates (16 FPS) and temporal flickering. | Integrated RIFE/FILM frame interpolation (to 60 FPS) and AnimateDiff Camera Motion LoRAs. |
+| **11** | **Memory Spillover & Defrag** | Physical VRAM monitoring | Windows silently pages VRAM overflow into System RAM, causing a 10×–20× slowdown. | PyTorch CUDA `expandable_segments` defrag + Shared GPU Memory allocation detection alert. |
+| **12** | **Safe Mode & Node Isolation** | Standard subprocess launch | Broken third-party custom nodes prevent ComfyUI from booting with cryptic import errors. | Safe Mode boot switch (`--disable-all-custom-nodes`) and malicious pickle `.pt`/`.ckpt` scanner. |
 
 ---
 
@@ -73,69 +75,29 @@ Generates 5 synchronized physical material channels from any 2D albedo texture:
 - Decodes binary frames (Opcode `0x2`) by stripping 8-byte event headers and piping raw JPEG data into PIL image buffers.
 - Automatic reconnection watchdog with exponential backoff.
 
-### 3.4. AI Workflow Graph Builder (`ComfyUI_App.py`)
-Dynamically constructs execution DAGs for ComfyUI:
-- **LoRA Chaining**: Injects `LoraLoader` between checkpoint and KSampler, updating model and CLIP connections.
-- **Custom VAE**: Injects `VAELoader` and redirects decoder nodes.
-- **High-Resolution Fix (Hires Fix)**: Injects `LatentUpscaleBy` + secondary `KSampler` with configurable denoise and step counts.
-- **Inpainting**: Binds `LoadMask` and `VAEEncodeForInpaint` with configurable mask dilation.
+### 3.4. Dynamic Path & Portability Engine (`config.py` & `comfyui_desktop/config.py`)
+- Dynamic base directory resolution via `COMFYUI_PORTABLE_DIR`, relative repo anchors, and standard system paths.
+- Zero machine-specific hardcoded paths across all modules.
 
 ---
 
 ## 4. Verification & Testing Methodology
 
-The codebase underwent a dual-harness verification regimen covering **110 automated test assertions**:
-
-```
-======================================================================
-DUAL-HARNESS VERIFICATION SUMMARY
-======================================================================
-Harness 1: Primary Functional QA Suite (qa_suite.py)          : 53 / 53 PASSED (100%)
-Harness 2: Deep Multi-Vector Stress Suite (multi_angle_debug)  : 57 / 57 PASSED (100%)
-----------------------------------------------------------------------
-TOTAL ASSERTIONS VERIFIED                                      : 110 / 110 (0 FAILURES)
-======================================================================
-```
-
-### Test Categories Verified
-1. **Platform & Process Identity**: Windows shell AppUserModelID, binary target paths.
-2. **GPU Doctor & Tuning**: Hardware VRAM detection, `--medvram` auto-assignment.
-3. **Cross-Browser Doctor**: Browser path resolution, Brave Shields guidance, loopback port scanner.
-4. **Desktop Shortcut & Job Objects**: Windows Job Object binding with `KillOnClose`, port reclamation.
-5. **Geometry & Bounds Safety**: Negative multi-monitor coordinates, off-screen recovery.
-6. **Model Vault & Download Resilience**: Curated catalog index, atomic temp naming.
-7. **WebSocket & API Resilience**: Safe interrupt signaling, VRAM purge handlers.
-8. **Desktop GUI & Workflow Tabs**: View switching, tab navigation, QoL toggles, live telemetry.
-9. **Matrix HUD Companion**: AST parsing, companion process launch, theme state transitions.
-10. **Static AST & Symbol Integrity**: Zero duplicate methods across all 12 modules.
-11. **Workflow Combinatorics**: All 8 DAG permutations verified nominal.
-12. **PBR Mathematical Rigor**: Normal map vector unit normalization ($\mu = 0.9976$).
-13. **Inpaint Mask Math**: Brush rasterization, inversion, and reset.
-14. **Configuration Resilience**: Corrupt JSON graceful recovery.
+The codebase is validated against **110 automated test assertions**:
+1. **Primary Functional QA Suite** (`qa_suite.py`): 53 / 53 PASSED (100%)
+2. **Deep Multi-Vector Stress Suite** (`multi_angle_debug.py`): 57 / 57 PASSED (100%)
 
 ---
 
-## 5. Running Tests Locally
-
-To run the complete verification suite on any Windows system:
+## 5. Running Locally & Building
 
 ```powershell
-# Run the Primary Functional QA Suite (53 Tests)
+# Run the application from source
+python ComfyUI_App.py
+
+# Run the automated QA verification suite
 python qa_suite.py
 
-# Run the Multi-Angle Deep Stress & Math Suite (57 Tests)
-python scratch/multi_angle_debug.py
-```
-
----
-
-## 6. Build & Packaging Guide
-
-To produce the standalone portable executable `ComfyUIX.exe`:
-
-```powershell
-# Build standalone distribution with PyInstaller
+# Build standalone distribution
 pyinstaller --clean -y ComfyUI_Uncensored.spec
 ```
-
-The output binary will be generated inside the `dist/` directory with all assets, icons, and Tcl/Tk libraries bundled.

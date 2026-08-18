@@ -112,9 +112,14 @@ class BackendManager:
             if os.name == "nt":
                 creation_flags |= getattr(subprocess, "DETACHED_PROCESS", 0x00000008)
 
+            sub_env = os.environ.copy()
+            # Windows CUDA memory defragmentation configuration
+            sub_env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+            sub_env["PYTHONUNBUFFERED"] = "1"
+
             wdir = os.path.dirname(main_py) if os.path.isfile(main_py) else COMFYUI_DIR
             self.process = subprocess.Popen(
-                args, cwd=wdir,
+                args, cwd=wdir, env=sub_env,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 creationflags=creation_flags
             )

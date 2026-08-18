@@ -9,7 +9,22 @@ import logging
 from pathlib import Path
 
 # Base Directory Resolution
-BASE_DIR = Path(r"C:\ComfyUI-Desktop")
+# Auto-detect the ComfyUI install dynamically rather than hardcoding a machine-specific path:
+def _resolve_comfyui_portable_dir() -> Path:
+    env = os.environ.get("COMFYUI_PORTABLE_DIR")
+    if env:
+        return Path(os.path.expanduser(os.path.expandvars(env)))
+    here = Path(__file__).resolve().parent
+    for cand in (here.parent / "ComfyUI_windows_portable",
+                 here.parent.parent / "ComfyUI_windows_portable",
+                 Path.cwd() / "ComfyUI_windows_portable",
+                 here / "ComfyUI_windows_portable",
+                 Path(r"C:\ComfyUI-Desktop")):
+        if cand.is_dir():
+            return cand
+    return here
+
+BASE_DIR = _resolve_comfyui_portable_dir()
 
 # System Paths
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
@@ -27,7 +42,10 @@ CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 # Ensure required directories exist
 for p in (OUTPUT_DIR, INPUT_DIR, LOG_DIR, CKPT_DIR, ARCHIVE_DIR):
-    os.makedirs(p, exist_ok=True)
+    try:
+        os.makedirs(p, exist_ok=True)
+    except Exception:
+        pass
 
 # Data Models & Constants
 MODELS = {

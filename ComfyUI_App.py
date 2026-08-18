@@ -2148,6 +2148,11 @@ class ComfyUIApp:
                       hover_color=BRAND_HOVER, font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
                       text_color=TEXT).pack(side="left", padx=2)
 
+        ctk.CTkButton(btn_bar, text="💧 Re-Hydrate", width=95, height=28, corner_radius=6,
+                      command=lambda: self._rehydrate_from_image(), fg_color="#123820", border_width=1, border_color=BORDER_MUTED,
+                      hover_color=BRAND_HOVER, font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
+                      text_color="#00FF66").pack(side="left", padx=2)
+
         ctk.CTkButton(btn_bar, text="⚡ Open Explorer", width=105, height=28, corner_radius=6,
                       command=self._gallery_open_active_dir, fg_color=BG_CARD_ALT, border_width=1, border_color=BORDER_MUTED,
                       hover_color=BRAND_HOVER, font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
@@ -3068,10 +3073,21 @@ class ComfyUIApp:
                                                command=lambda v: self._apply_history_prompt(v, "txt2img"))
         self.img_hist_menu.pack(side="left")
         # QoL: visible Copy-Prompt button (discoverable alternative to Ctrl+Shift+C)
-        ctk.CTkButton(hist_row, text="⧉ Copy", width=70, height=24,
+        ctk.CTkButton(hist_row, text="⧉ Copy", width=62, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
                      command=lambda: self._copy_prompt()).pack(side="left", padx=(6, 0))
+
+        # SOTA: 1-Click Local LLM prompt expansion & Parameter Re-Hydration
+        ctk.CTkButton(hist_row, text="⚡ Enhance", width=74, height=24,
+                     font=ctk.CTkFont(size=10, weight="bold"), fg_color="#123820", text_color="#00FF66",
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._enhance_prompt_with_llm("txt2img")).pack(side="left", padx=(6, 0))
+
+        ctk.CTkButton(hist_row, text="💧 Re-Hydrate", width=82, height=24,
+                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._rehydrate_from_image()).pack(side="left", padx=(6, 0))
         self._refresh_history_menu()
 
         self.neg_entry = ctk.CTkTextbox(sf, height=32, font=self.FONT_TEXT,
@@ -3323,8 +3339,19 @@ class ComfyUIApp:
                                                    dropdown_hover_color=DROPDOWN_HOVER,
                                                    command=lambda v: self._apply_history_prompt(v, "img2img"))
         self.img2img_hist_menu.pack(side="left")
+        # SOTA: 1-Click Local LLM prompt expansion & Parameter Re-Hydration
+        ctk.CTkButton(ihist_row, text="⚡ Enhance", width=74, height=24,
+                     font=ctk.CTkFont(size=10, weight="bold"), fg_color="#123820", text_color="#00FF66",
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._enhance_prompt_with_llm("img2img")).pack(side="left", padx=(6, 0))
+
+        ctk.CTkButton(ihist_row, text="💧 Re-Hydrate", width=82, height=24,
+                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
+                     hover_color=BRAND_HOVER,
+                     command=lambda: self._rehydrate_from_image()).pack(side="left", padx=(6, 0))
+
         # share the same history list as txt2img
-        ctk.CTkButton(ihist_row, text="Refresh", width=80, height=24,
+        ctk.CTkButton(ihist_row, text="Refresh", width=70, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
                      command=lambda: self._refresh_history_menu()).pack(side="left", padx=(6, 0))
@@ -5661,6 +5688,11 @@ class ComfyUIApp:
         else:
             prompt_text = m.get("prompt", tk.StringVar()).get()
             neg_text = m.get("neg", tk.StringVar()).get()
+
+        # Dynamic Wildcards resolution ({option1|option2|option3})
+        wildcard_fn = getattr(self, "_resolve_dynamic_wildcards", lambda s: s)
+        prompt_text = wildcard_fn(prompt_text)
+
         model_name = MODELS.get(self.model_var.get(), {}).get("value", "sd_xl_base_1.0.safetensors")
         ckpt = model_name
 
@@ -5685,9 +5717,12 @@ class ComfyUIApp:
         hires_denoise = _safe_float(m.get("hires_denoise", tk.StringVar(value="0.45")).get(), default=0.45, lo=0.1, hi=1.0) if "hires_denoise" in m else 0.45
 
         if mode == "txt2img":
+            # GGUF Quantization or Standard Checkpoint Loader
+            loader_type = "UnetLoaderGGUF" if ckpt.lower().endswith(".gguf") else "CheckpointLoaderSimple"
+            loader_input_key = "unet_name" if ckpt.lower().endswith(".gguf") else "ckpt_name"
             wf = {
-                "LastNode": {"class_type": "CheckpointLoaderSimple",
-                             "inputs": {"ckpt_name": ckpt}},
+                "LastNode": {"class_type": loader_type,
+                             "inputs": {loader_input_key: ckpt}},
                 "EmptyLatent": {"class_type": "EmptyLatentImage",
                                 "inputs": {"width": w, "height": h, "batch_size": batch}},
             }
@@ -6561,6 +6596,158 @@ class ComfyUIApp:
             self._set_status("No prompt text to copy")
         except Exception:
             pass
+
+    def _resolve_dynamic_wildcards(self, text: str) -> str:
+        """Resolve {option1|option2|option3} dynamic permutation brackets."""
+        if not text or not isinstance(text, str):
+            return text or ""
+        import re
+        import random
+        pattern = re.compile(r"\{([^{}]+)\}")
+        res = text
+        for _ in range(3):
+            if "{" in res and "}" in res:
+                res = pattern.sub(lambda m: random.choice(m.group(1).split("|")).strip(), res)
+            else:
+                break
+        return res
+
+    def _enhance_prompt_with_llm(self, tab="txt2img"):
+        """Asynchronously query local LLM or heuristic enhancer to expand concise prompt into high-fidelity diffusion prompt."""
+        p_entry = self.prompt_entry if tab == "txt2img" else getattr(self, "img2img_prompt_entry", self.prompt_entry)
+        curr_text = p_entry.get("1.0", "end-1c").strip() if p_entry else ""
+        if not curr_text:
+            self._set_status("Enter a prompt idea first to enhance")
+            return
+
+        self._set_status("⚡ Enhancing prompt with local AI...")
+
+        def _worker():
+            enhanced = None
+            # 1. Try local LLM endpoints
+            for ep in [
+                ("http://127.0.0.1:11434/api/generate", "ollama"),
+                ("http://127.0.0.1:1234/v1/chat/completions", "lmstudio"),
+                ("http://127.0.0.1:5119/v1/chat/completions", "hermes"),
+                ("http://127.0.0.1:8000/v1/chat/completions", "vllm")
+            ]:
+                try:
+                    url, ptype = ep
+                    if ptype == "ollama":
+                        payload = {
+                            "model": "qwen2.5:latest",
+                            "prompt": f"You are an expert diffusion prompt engineer. Expand this user concept into a detailed, descriptive positive prompt with lighting, texture, and atmospheric details. Return ONLY the expanded prompt, no markdown, no quotes: {curr_text}",
+                            "stream": False
+                        }
+                        r = requests.post(url, json=payload, timeout=4)
+                        if r.status_code == 200:
+                            data = r.json()
+                            if "response" in data and data["response"].strip():
+                                enhanced = data["response"].strip().strip('"')
+                                break
+                    else:
+                        payload = {
+                            "messages": [
+                                {"role": "system", "content": "You are an expert diffusion prompt engineer. Expand the user concept into a vivid, descriptive prompt with lighting, texture, and aesthetic details. Output ONLY the raw prompt without commentary or quotes."},
+                                {"role": "user", "content": curr_text}
+                            ],
+                            "max_tokens": 120,
+                            "temperature": 0.7
+                        }
+                        r = requests.post(url, json=payload, timeout=4)
+                        if r.status_code == 200:
+                            data = r.json()
+                            choices = data.get("choices", [])
+                            if choices and "message" in choices[0]:
+                                enhanced = choices[0]["message"].get("content", "").strip().strip('"')
+                                break
+                except Exception:
+                    pass
+
+            # 2. High-quality artistic heuristic fallback
+            if not enhanced or len(enhanced) < 10:
+                qualifiers = [
+                    "masterpiece, 8k uhd, sharp focus, natural skin texture, soft studio rim lighting, cinematic depth of field, 85mm lens, award-winning composition",
+                    "ultra-detailed, volumetric lighting, rich color grading, crisp highlights, ambient occlusion, photorealistic textures, masterpiece",
+                    "highly detailed, soft cinematic atmosphere, intricate background details, octane render aesthetic, award-winning art, 8k resolution"
+                ]
+                import random
+                clean_base = curr_text.rstrip(",. ")
+                enhanced = f"{clean_base}, {random.choice(qualifiers)}"
+
+            def _apply():
+                try:
+                    p_entry.delete("1.0", "end")
+                    p_entry.insert("1.0", enhanced)
+                    self._set_status("Prompt enhanced successfully ⚡")
+                    self._show_toast("Prompt Enhanced", "Expanded prompt with high-fidelity creative details.")
+                except Exception:
+                    pass
+
+            self.root.after(0, _apply)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _rehydrate_from_image(self, image_path=None):
+        """1-Click generation parameter re-hydration from PNG embedded chunks."""
+        try:
+            if not image_path:
+                import tkinter.filedialog as fd
+                chosen = fd.askopenfilename(
+                    title="Select Generated Image to Re-Hydrate",
+                    filetypes=[("Images", "*.png;*.webp;*.jpg;*.jpeg"), ("All Files", "*.*")],
+                    parent=self.root
+                )
+                if not chosen or not os.path.isfile(chosen):
+                    return
+                image_path = chosen
+
+            from gallery import extract_generation_metadata
+            meta = extract_generation_metadata(image_path)
+            if not meta.get("has_metadata"):
+                self._set_status("No embedded generation parameters found in image")
+                return
+
+            # Apply parameters to txt2img
+            if meta.get("prompt") and hasattr(self, "prompt_entry"):
+                self.prompt_entry.delete("1.0", "end")
+                self.prompt_entry.insert("1.0", meta["prompt"])
+
+            if meta.get("negative") and hasattr(self, "neg_entry"):
+                self.neg_entry.delete("1.0", "end")
+                self.neg_entry.insert("1.0", meta["negative"])
+
+            m = self.vars.get("txt2img", {})
+            if meta.get("steps") is not None and "steps" in m:
+                m["steps"].set(str(meta["steps"]))
+            if meta.get("cfg") is not None and "cfg" in m:
+                m["cfg"].set(str(meta["cfg"]))
+            if meta.get("seed") is not None and "seed" in m:
+                m["seed"].set(str(meta["seed"]))
+                if "randomize_seed" in m:
+                    m["randomize_seed"].set("0")
+            if meta.get("width") is not None and "width" in m:
+                m["width"].set(str(meta["width"]))
+            if meta.get("height") is not None and "height" in m:
+                m["height"].set(str(meta["height"]))
+            if meta.get("sampler") and "sampler" in m:
+                m["sampler"].set(meta["sampler"])
+            if meta.get("scheduler") and "scheduler" in m:
+                m["scheduler"].set(meta["scheduler"])
+
+            if meta.get("model") and hasattr(self, "model_var"):
+                for m_key, m_info in MODELS.items():
+                    if m_info.get("file") == meta["model"] or m_key.lower() in meta["model"].lower():
+                        self.model_var.set(m_key)
+                        break
+
+            fname = os.path.basename(image_path)
+            self._focus_generate()
+            self._set_status(f"Re-hydrated generation parameters from {fname}")
+            self._show_toast("Parameters Re-Hydrated", f"Loaded generation settings from {fname}")
+        except Exception as e:
+            logging.error("Re-hydrate error: %s", e)
+            self._set_status(f"Re-hydration error: {str(e)[:30]}")
 
     # --- QoL: prompt-history recall (gated by qol_prompt_history) ---
     def _refresh_history_menu(self):

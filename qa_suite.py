@@ -28,6 +28,24 @@ if APP_DIR not in sys.path:
     sys.path.insert(0, APP_DIR)
 
 
+def _sanitize_text(text: str) -> str:
+    """Sanitize user-specific machine paths for clean public git reports."""
+    if not isinstance(text, str):
+        text = str(text)
+    user_home = os.path.expanduser("~")
+    if user_home and len(user_home) > 3:
+        text = text.replace(user_home, "[USER_HOME]")
+        text = text.replace(user_home.replace("\\", "\\\\"), "[USER_HOME]")
+    username = os.environ.get("USERNAME", "")
+    if username and len(username) > 2:
+        text = text.replace(f"Users\\{username}", "Users\\[USER]")
+        text = text.replace(f"Users\\\\{username}", "Users\\\\[USER]")
+    if APP_DIR and len(APP_DIR) > 3:
+        text = text.replace(APP_DIR, "[APP_DIR]")
+        text = text.replace(APP_DIR.replace("\\", "\\\\"), "[APP_DIR]")
+    return text
+
+
 class QATestRunner:
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
@@ -35,17 +53,23 @@ class QATestRunner:
         self.start_time = time.time()
 
     def record_test(self, category: str, test_name: str, passed: bool, details: str = "", metadata: dict = None):
+        sanitized_details = _sanitize_text(details)
+        sanitized_metadata = {}
+        if metadata:
+            for k, v in metadata.items():
+                sanitized_metadata[k] = _sanitize_text(v) if isinstance(v, str) else v
+
         res = {
             "category": category,
             "name": test_name,
             "status": "PASS" if passed else "FAIL",
-            "details": details,
-            "metadata": metadata or {},
+            "details": sanitized_details,
+            "metadata": sanitized_metadata,
             "timestamp": datetime.now().isoformat()
         }
         self.results.append(res)
         status_icon = "✔ PASS" if passed else "✖ FAIL"
-        logger.info(f"[{status_icon}] [{category}] {test_name}: {details}")
+        logger.info(f"[{status_icon}] [{category}] {test_name}: {sanitized_details}")
 
     # -------------------------------------------------------------------------
     # 1. Platform & Environment Tests

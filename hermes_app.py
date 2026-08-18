@@ -86,20 +86,20 @@ sys.excepthook = _excepthook
 # ---------------------------------------------------------------------------
 # Backend configuration
 # ---------------------------------------------------------------------------
-PROXY_BASE = "http://127.0.0.1:5119"
+PROXY_BASE = os.environ.get("LOCAL_AI_PROXY_URL", "http://127.0.0.1:5119")
 TELEMETRY_URL = f"{PROXY_BASE}/admin/telemetry"
 POLL_MS = 2000
 
-# Real models served by the proxy (verified live). The old 9B / 4B-Vision
-# aliases were removed because those GGUFs no longer exist on this rig.
+# Standard local AI model tiers supported by local proxy / engines
 MODELS = [
-    {"key": "27b", "id": "Qwen3.8-27B-Uncensored", "label": "Qwen3.8-27B - Think Hard", "pill": "RED"},
-    {"key": "35b", "id": "Qwen3.6-35B-Uncensored", "label": "Qwen3.6-35B - Fast", "pill": "BLUE"},
+    {"key": "27b", "id": "Local-LLM-Pro", "label": "LLM Pro - Deep Reasoning", "pill": "RED"},
+    {"key": "35b", "id": "Local-LLM-Fast", "label": "LLM Fast - Low Latency", "pill": "BLUE"},
 ]
 
-# Known specs for the locally-served models (from telemetry + verified rig config).
-# Used by the Active-Model Spec Card so the HUD shows real arch/quant/ctx, not guesses.
+# Model specification profiles
 SPEC = {
+    "Local-LLM-Pro": "High Precision  -  Quantized  -  Extended Context",
+    "Local-LLM-Fast": "Fast Inference  -  Low Latency  -  Standard Context",
     "Qwen3.8-27B-Uncensored": "27B dense  -  Q3_K_S  -  128K ctx",
     "Qwen3.6-35B-Uncensored": "35B MoE  -  Q3_K_S  -  128K ctx",
 }

@@ -76,6 +76,16 @@ def test_vector_1_ast_and_symbols():
         except Exception as e:
             record(cat, f"AST Parsing: {rel_path}", False, str(e))
 
+_GLOBAL_TK_ROOT = None
+
+def _get_tk_root():
+    global _GLOBAL_TK_ROOT
+    if _GLOBAL_TK_ROOT is None:
+        import tkinter as tk
+        _GLOBAL_TK_ROOT = tk.Tk()
+        _GLOBAL_TK_ROOT.withdraw()
+    return _GLOBAL_TK_ROOT
+
 # =========================================================================
 # VECTOR 2: Combinatorial AI Workflow Graph Builder Permutations
 # =========================================================================
@@ -83,8 +93,7 @@ def test_vector_2_workflow_fuzzing():
     cat = "Vector 2: Workflow Graph Combinatorics"
     try:
         import tkinter as tk
-        root = tk.Tk()
-        root.withdraw()
+        root = _get_tk_root()
         
         from ComfyUI_App import ComfyUIApp
         
@@ -195,7 +204,6 @@ def test_vector_2_workflow_fuzzing():
         has_audio = "AudioPrompt" in wf_audio and "AudioModel" in wf_audio and "AudioSave" in wf_audio
         record(cat, "Audio Synthesis Workflow", has_audio, f"SaveAudio active: {has_audio}")
 
-        root.destroy()
     except Exception as e:
         record(cat, "Workflow Fuzzing Exception", False, str(e))
 
@@ -312,8 +320,7 @@ def test_vector_5_inpaint_canvas():
         from comfyui_desktop.inpaint_canvas import InpaintCanvas
         import tkinter as tk
         
-        root = tk.Tk()
-        root.withdraw()
+        root = _get_tk_root()
         
         canvas = InpaintCanvas(root, width=512, height=512)
         base_img = Image.new("RGB", (512, 512), color=(100, 150, 200))
@@ -340,7 +347,6 @@ def test_vector_5_inpaint_canvas():
         cleared_arr = np.array(canvas.mask_pil)
         record(cat, "Mask Reset & Clear", np.all(cleared_arr == 0), "All mask pixels reset to 0 (black)")
 
-        root.destroy()
     except Exception as e:
         record(cat, "Inpaint Canvas Exception", False, str(e))
 

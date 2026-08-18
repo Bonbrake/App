@@ -268,3 +268,88 @@ def scan_all_media_files(directories, recursive=True, max_depth=2, filter_type="
 
     return valid_files
 
+
+def extract_generation_metadata(image_path: str) -> dict:
+    """Extract embedded generation parameters, prompts, and ComfyUI workflow DAG from PNG/WebP files."""
+    import json
+    res = {
+        "has_metadata": False,
+        "prompt": "",
+        "negative": "",
+        "model": "",
+        "seed": None,
+        "steps": None,
+        "cfg": None,
+        "sampler": "",
+        "scheduler": "",
+        "width": None,
+        "height": None,
+        "loras": [],
+        "raw": {}
+    }
+    if not image_path or not os.path.isfile(image_path):
+        return res
+    try:
+        with Image.open(image_path) as im:
+            info = im.info or {}
+            res["raw"] = {str(k): str(v)[:500] for k, v in info.items()}
+
+            # 1. ComfyUI Prompt JSON chunk
+            if "prompt" in info:
+                try:
+                    p_data = json.loads(info["prompt"]) if isinstance(info["prompt"], str) else info["prompt"]
+                    if isinstance(p_data, dict):
+                        res["has_metadata"] = True
+                        for nid, node in p_data.items():
+                            ctype = str(node.get("class_type", ""))
+                            inputs = node.get("inputs", {})
+                            if any(k in ctype for k in ("CLIPTextEncode", "TextEncode", "Prompt")):
+                                txt = str(inputs.get("text", "")).strip()
+                                if txt:
+                                    if not res["prompt"]:
+                                        res["prompt"] = txt
+                                    elif not res["negative"]:
+                                        res["negative"] = txt
+                            elif "KSampler" in ctype or "Sampler" in ctype:
+                                if "seed" in inputs and res["seed"] is None: res["seed"] = inputs["seed"]
+                                if "steps" in inputs and res["steps"] is None: res["steps"] = inputs["steps"]
+                                if "cfg" in inputs and res["cfg"] is None: res["cfg"] = inputs["cfg"]
+                                if "sampler_name" in inputs and not res["sampler"]: res["sampler"] = str(inputs["sampler_name"])
+                                if "scheduler" in inputs and not res["scheduler"]: res["scheduler"] = str(inputs["scheduler"])
+                            elif "CheckpointLoader" in ctype or "UNETLoader" in ctype:
+                                if "ckpt_name" in inputs and not res["model"]: res["model"] = str(inputs["ckpt_name"])
+                                elif "unet_name" in inputs and not res["model"]: res["model"] = str(inputs["unet_name"])
+                            elif "EmptyLatent" in ctype:
+                                if "width" in inputs and res["width"] is None: res["width"] = inputs["width"]
+                                if "height" in inputs and res["height"] is None: res["height"] = inputs["height"]
+                            elif "LoraLoader" in ctype:
+                                if "lora_name" in inputs:
+                                    res["loras"].append({
+                                        "name": str(inputs["lora_name"]),
+                                        "strength_model": inputs.get("strength_model", 1.0),
+                                        "strength_clip": inputs.get("strength_clip", 1.0)
+                                    })
+                except Exception as e:
+                    logger.debug("ComfyUI chunk parse note: %s", e)
+
+            # 2. A1111 / WebUI / Forge 'parameters' chunk fallback
+            if not res["has_metadata"] and "parameters" in info:
+                p_text = str(info["parameters"])
+                res["has_metadata"] = True
+                if "Negative prompt:" in p_text:
+                    parts = p_text.split("Negative prompt:")
+                    res["prompt"] = parts[0].strip()
+                    tail = parts[1]
+                    if "Steps:" in tail:
+                        sub = tail.split("Steps:")
+                        res["negative"] = sub[0].strip()
+                    else:
+                        res["negative"] = tail.strip()
+                elif "Steps:" in p_text:
+                    res["prompt"] = p_text.split("Steps:")[0].strip()
+                else:
+                    res["prompt"] = p_text.strip()
+    except Exception as e:
+        logger.debug("Failed to extract metadata from %s: %s", image_path, e)
+
+    return res
