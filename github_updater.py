@@ -22,9 +22,18 @@ TRACKED_SCRIPTS = [
     "model_downloader.py",
     "gallery.py",
     "hermes_app.py",
-    "backend.py",
     "github_updater.py",
-    "quick_update.py",
+    "qa_suite.py",
+    "multi_angle_debug.py",
+    "comfyui_desktop/__init__.py",
+    "comfyui_desktop/ws_client.py",
+    "comfyui_desktop/inpaint_canvas.py",
+    "comfyui_desktop/gpu_doctor.py",
+    "comfyui_desktop/browser_doctor.py",
+    "comfyui_desktop/shortcut_manager.py",
+    "comfyui_desktop/orphan_reap.py",
+    "comfyui_desktop/backend_manager.py",
+    "comfyui_desktop/diagnostics.py",
 ]
 
 def get_local_build_info():
@@ -64,7 +73,7 @@ def check_for_updates(repo="Bonbrake/ComfyUIX", branch="main"):
         "release_url": None,
         "error": None,
     }
-    headers = {"User-Agent": "ComfyUIX-Updater/2.4.0"}
+    headers = {"User-Agent": "ComfyUIX-Updater/5.0.0"}
     
     # 1. Check latest commit on branch
     commit_url = f"https://api.github.com/repos/{repo}/commits/{branch}"
@@ -74,9 +83,8 @@ def check_for_updates(repo="Bonbrake/ComfyUIX", branch="main"):
             if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8"))
                 sha = data.get("sha", "")[:7]
-                commit_info = data.get("commit", {})
-                msg = commit_info.get("message", "").split("\n")[0]
-                date = commit_info.get("author", {}).get("date", "")
+                msg = data.get("commit", {}).get("message", "").split("\n")[0]
+                date = data.get("commit", {}).get("author", {}).get("date", "")
                 res["latest_sha"] = sha
                 res["latest_msg"] = msg
                 res["latest_date"] = date
@@ -112,7 +120,7 @@ def apply_script_update(repo="Bonbrake/ComfyUIX", branch="main", progress_callba
     Download and apply raw Python script updates from GitHub into local application directories.
     """
     raw_base = f"https://raw.githubusercontent.com/{repo}/{branch}/"
-    headers = {"User-Agent": "ComfyUIX-Updater/2.4.0"}
+    headers = {"User-Agent": "ComfyUIX-Updater/5.0.0"}
     
     src_dir = os.path.dirname(os.path.abspath(__file__))
     dest_dirs = [src_dir]
@@ -134,12 +142,14 @@ def apply_script_update(repo="Bonbrake/ComfyUIX", branch="main", progress_callba
                     content = resp.read()
                     # Write to workspace
                     local_path = os.path.join(src_dir, fname)
+                    os.makedirs(os.path.dirname(local_path), exist_ok=True)
                     with open(local_path, "wb") as f:
                         f.write(content)
                     # Sync to destination directories
                     for d in dest_dirs:
                         if os.path.isdir(d):
                             target = os.path.join(d, fname)
+                            os.makedirs(os.path.dirname(target), exist_ok=True)
                             with open(target, "wb") as f:
                                 f.write(content)
                     updated_files.append(fname)
