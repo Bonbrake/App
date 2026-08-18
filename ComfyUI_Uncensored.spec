@@ -52,7 +52,9 @@ spec_hiddenimports = ['PIL', 'PIL._tkinter_finder', 'PIL.ImageTk', 'win32mica', 
                        'PySide6', 'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets', 'psutil', 'win32com', 'win32com.client',
                        'comfyui_desktop', 'comfyui_desktop.glass', 'comfyui_desktop.orphan_reap',
                        'comfyui_desktop.config', 'comfyui_desktop.diagnostics', 'comfyui_desktop.gallery',
-                       'comfyui_desktop.backend_manager', 'comfyui_desktop.widgets', 'comfyui_desktop.ws_client']
+                       'comfyui_desktop.backend_manager', 'comfyui_desktop.widgets', 'comfyui_desktop.ws_client',
+                       'comfyui_desktop.inpaint_canvas', 'comfyui_desktop.gpu_doctor', 'comfyui_desktop.browser_doctor',
+                       'comfyui_desktop.shortcut_manager']
 
 for _pkg in ('customtkinter', 'imageio', 'imageio_ffmpeg', 'av', 'PIL', 'comfyui_desktop', 'requests', 'numpy', 'glass', 'onnxruntime', 'ctranslate2', 'scipy', 'sklearn', 'pydantic', 'rich', 'fastapi', 'uvicorn', 'cryptography', 'lxml', 'sounddevice', 'tokenizers', 'yaml', 'PySide6', 'psutil'):
     try:
