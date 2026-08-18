@@ -168,58 +168,111 @@ def _hue_shift_color(rgb, deg):
 
 
 class MatrixRainCanvas(tk.Canvas):
-    """High-Performance Matrix Cyber Background Canvas.
+    """High-Performance Authentic Matrix Digital Rain Canvas.
 
-    Renders a clean, ultra-dark obsidian cyber grid with zero background CPU load (0% idle).
+    Inspired by Project30Hub/Matrix-Digital-Rain, rendering cascading streams
+    of glowing green Katakana, Latin glyphs, and digits with fade trails.
     """
-    CHARS = list("ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ9876543210ABCDEF+-*/<>$#@%&")
+    CHARS = list("ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+-*/<>$#@%&")
 
     def __init__(self, master, font_size=14, fps=24, **kwargs):
         kwargs.setdefault("bg", "#040A06")
         kwargs.setdefault("highlightthickness", 0)
         super().__init__(master, **kwargs)
         self.font_size = font_size
+        self.fps = fps
+        self.interval_ms = int(1000 / fps)
         self.running = False
-        self._resize_job = None
+        self._anim_job = None
+        self.drops = []
+        self._img_id = None
+        self._photo = None
+        self._pil_img = None
+        self._draw = None
+        self._last_canvas_size = None
+        try:
+            from PIL import ImageFont
+            self._font = ImageFont.truetype("consola.ttf", self.font_size)
+        except Exception:
+            try:
+                from PIL import ImageFont
+                self._font = ImageFont.load_default()
+            except Exception:
+                self._font = None
         self.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, event=None):
-        if self._resize_job is not None:
-            try:
-                self.after_cancel(self._resize_job)
-            except Exception:
-                pass
-        self._resize_job = self.after(150, self._render_static_grid)
-
-    def _render_static_grid(self):
-        self._resize_job = None
+        if event is not None:
+            new_size = (event.width, event.height)
+            if self._last_canvas_size == new_size:
+                return
+            self._last_canvas_size = new_size
+        w = max(50, self.winfo_width())
+        h = max(50, self.winfo_height())
+        cols = w // self.font_size + 1
+        import random
+        self.drops = [random.randint(-h // self.font_size, 0) for _ in range(cols)]
         try:
-            w = max(10, self.winfo_width())
-            h = max(10, self.winfo_height())
+            from PIL import Image, ImageDraw, ImageTk
+            self._pil_img = Image.new("RGB", (w, h), "#040A06")
+            self._draw = ImageDraw.Draw(self._pil_img)
+            self._photo = ImageTk.PhotoImage(self._pil_img)
             self.delete("all")
-            # Subtle deep cyber background fill
-            self.create_rectangle(0, 0, w, h, fill="#040A06", outline="")
-            # Clean cyber boundary grid lines
-            step = max(32, self.font_size * 3)
-            for x in range(0, w, step):
-                self.create_line(x, 0, x, h, fill="#08140C", width=1)
-            for y in range(0, h, step):
-                self.create_line(0, y, w, y, fill="#08140C", width=1)
+            self._img_id = self.create_image(0, 0, image=self._photo, anchor="nw")
         except Exception:
             pass
 
+    def _tick(self):
+        if not self.running or self._draw is None:
+            return
+        w = self.winfo_width()
+        h = self.winfo_height()
+        if w < 10 or h < 10:
+            return
+
+        import random
+        from PIL import Image, ImageDraw
+
+        try:
+            # Semi-transparent dark overlay (fading trail effect from Project30Hub/Matrix-Digital-Rain)
+            fade = Image.new("RGBA", (w, h), (4, 10, 6, 28))
+            self._pil_img.paste(Image.blend(self._pil_img.convert("RGBA"), fade, 0.16).convert("RGB"))
+            self._draw = ImageDraw.Draw(self._pil_img)
+
+            for i in range(len(self.drops)):
+                char = random.choice(self.CHARS)
+                x = i * self.font_size
+                y = self.drops[i] * self.font_size
+
+                # Bright glowing cyber green leading drop
+                self._draw.text((x, y), char, font=self._font, fill=(0, 255, 102))
+
+                # Reset to top randomly when passing bottom
+                if y > h and random.random() > 0.975:
+                    self.drops[i] = 0
+                else:
+                    self.drops[i] += 1
+
+            self._photo.paste(self._pil_img)
+        except Exception:
+            pass
+
+        if self.running:
+            self._anim_job = self.after(self.interval_ms, self._tick)
+
     def start(self):
-        self.running = True
-        self._render_static_grid()
+        if not self.running:
+            self.running = True
+            self._tick()
 
     def stop(self):
         self.running = False
-        if self._resize_job is not None:
+        if self._anim_job is not None:
             try:
-                self.after_cancel(self._resize_job)
+                self.after_cancel(self._anim_job)
             except Exception:
                 pass
-            self._resize_job = None
+            self._anim_job = None
 
 
 class AcrylicBackground:

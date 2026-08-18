@@ -1650,12 +1650,16 @@ class ComfyUIApp:
         self.config_manager.save()
 
     def _build_backdrop(self):
-        """Configure clean dark obsidian root background."""
+        """Build and start real-time Matrix Digital Code Rain background canvas behind the main window."""
         try:
-            if hasattr(self, "root") and self.root:
-                self.root.configure(bg="#040A06")
-        except Exception:
-            pass
+            from glass import MatrixRainCanvas
+            if not hasattr(self, "matrix_rain") or self.matrix_rain is None:
+                self.matrix_rain = MatrixRainCanvas(self.root, font_size=14, fps=24)
+                self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
+                self.matrix_rain.tk.call("lower", self.matrix_rain._w)
+                self.matrix_rain.start()
+        except Exception as e:
+            logging.error("Failed to initialize Matrix digital rain backdrop: %s", e)
 
     def _start_backend_threads(self):
         """Start backend polling threads after UI is first rendered.
@@ -1734,7 +1738,7 @@ class ComfyUIApp:
 
     # ------------------------------------------------------------------
     def _build_sidebar(self):
-        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color=BG_SIDEBAR)
+        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color="transparent")
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
