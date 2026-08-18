@@ -168,80 +168,111 @@ def _hue_shift_color(rgb, deg):
 
 
 class MatrixRainCanvas(tk.Canvas):
-    """High-Performance Native Matrix Digital Rain Canvas.
+    """High-Performance Matrix Digital Rain Canvas.
 
     Renders continuous cascading streams of glowing green Katakana,
-    Latin glyphs, and numbers directly on Tkinter Canvas.
+    Latin glyphs, and numbers using fast in-memory rasterization.
     """
     CHARS = list("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ+*-/<>$#@%&")
 
-    def __init__(self, master, font_size=14, fps=30, **kwargs):
+    def __init__(self, master, font_size=15, fps=20, **kwargs):
         kwargs.setdefault("bg", "#000000")
         kwargs.setdefault("highlightthickness", 0)
         super().__init__(master, **kwargs)
         self.font_size = font_size
-        self.fps = fps
         self.interval_ms = int(1000 / fps)
         self.running = False
         self._anim_job = None
         self.columns = []
+        self._img_id = None
+        self._photo = None
+        self._pil_img = None
+        self._draw = None
+        try:
+            from PIL import ImageFont
+            import os
+            if os.path.exists(r"C:\Windows\Fonts\msgothic.ttc"):
+                self._font = ImageFont.truetype(r"C:\Windows\Fonts\msgothic.ttc", self.font_size)
+            else:
+                self._font = ImageFont.truetype("consola.ttf", self.font_size)
+        except Exception:
+            try:
+                from PIL import ImageFont
+                self._font = ImageFont.load_default()
+            except Exception:
+                self._font = None
         self.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, event=None):
         w = max(50, self.winfo_width())
         h = max(50, self.winfo_height())
-        cols = w // self.font_size + 1
-        self.delete("rain")
-        self.columns = []
+        cols = max(1, w // self.font_size)
         import random
+        self.columns = []
         for i in range(cols):
-            x = i * self.font_size + self.font_size // 2
-            y = random.randint(0, h)
-            speed = random.randint(3, 7)
-            trail_len = random.randint(6, 16)
-            items = []
-            for j in range(trail_len):
-                if j == 0:
-                    color = "#FFFFFF"   # White-hot leading drop
-                elif j < 3:
-                    color = "#00FF66"   # Electric matrix neon green
-                elif j < 7:
-                    color = "#00BB44"   # Soft emerald mid-trail
-                else:
-                    color = "#004B19"   # Dark green fade
-                tid = self.create_text(x, -50, text=random.choice(self.CHARS),
-                                       fill=color, font=("Consolas", self.font_size, "bold" if j == 0 else "normal"),
-                                       tags="rain")
-                items.append(tid)
             self.columns.append({
-                "x": x,
-                "y": y,
-                "speed": speed,
-                "trail_len": trail_len,
-                "items": items,
+                "y": random.randint(0, h),
+                "speed": random.randint(3, 7),
+                "len": random.randint(8, 18),
+                "chars": [random.choice(self.CHARS) for _ in range(20)]
             })
-        self.tag_lower("rain")
+        try:
+            from PIL import Image, ImageDraw, ImageTk
+            self._pil_img = Image.new("RGB", (w, h), "#000000")
+            self._draw = ImageDraw.Draw(self._pil_img)
+            self._photo = ImageTk.PhotoImage(self._pil_img)
+            self.delete("all")
+            self._img_id = self.create_image(0, 0, image=self._photo, anchor="nw")
+        except Exception:
+            pass
 
     def _tick(self):
-        if not self.running:
+        if not self.running or self._draw is None:
             return
+        w = max(50, self.winfo_width())
         h = max(50, self.winfo_height())
-        import random
-        for col in self.columns:
-            col["y"] += col["speed"]
-            if col["y"] - (col["trail_len"] * self.font_size) > h:
-                col["y"] = 0
-                col["speed"] = random.randint(3, 7)
+        if w < 10 or h < 10:
+            return
 
-            cy = col["y"]
-            for idx, tid in enumerate(col["items"]):
-                iy = cy - (idx * self.font_size)
-                if 0 <= iy <= h + 20:
-                    self.coords(tid, col["x"], iy)
-                    if random.random() < 0.08:
-                        self.itemconfig(tid, text=random.choice(self.CHARS))
-                else:
-                    self.coords(tid, -100, -100)
+        import random
+        from PIL import ImageTk
+
+        try:
+            self._draw.rectangle([0, 0, w, h], fill="#000000")
+
+            for i, col in enumerate(self.columns):
+                col["y"] += col["speed"]
+                if col["y"] - (col["len"] * self.font_size) > h:
+                    col["y"] = 0
+                    col["speed"] = random.randint(3, 7)
+                    col["len"] = random.randint(8, 18)
+
+                head_y = col["y"]
+                x = i * self.font_size
+
+                for t in range(col["len"]):
+                    cy = head_y - (t * self.font_size)
+                    if 0 <= cy <= h:
+                        char = col["chars"][t % len(col["chars"])]
+                        if random.random() < 0.04:
+                            char = random.choice(self.CHARS)
+                            col["chars"][t % len(col["chars"])] = char
+
+                        if t == 0:
+                            fill = (240, 255, 245)
+                        elif t < 3:
+                            fill = (0, 255, 102)
+                        elif t < 7:
+                            fill = (0, 180, 70)
+                        else:
+                            fill = (0, 75, 25)
+
+                        self._draw.text((x, cy), char, font=self._font, fill=fill)
+
+            self._photo = ImageTk.PhotoImage(self._pil_img)
+            self.itemconfig(self._img_id, image=self._photo)
+        except Exception:
+            pass
 
         if self.running:
             self._anim_job = self.after(self.interval_ms, self._tick)
@@ -253,7 +284,7 @@ class MatrixRainCanvas(tk.Canvas):
 
     def stop(self):
         self.running = False
-        if self._anim_job is not None:
+        if self._anim_job:
             try:
                 self.after_cancel(self._anim_job)
             except Exception:

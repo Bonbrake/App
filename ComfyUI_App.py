@@ -1650,15 +1650,8 @@ class ComfyUIApp:
         self.config_manager.save()
 
     def _build_backdrop(self):
-        """Build and start real-time Matrix Digital Code Rain background canvas."""
-        try:
-            from glass import MatrixRainCanvas
-            if not hasattr(self, "matrix_rain") or self.matrix_rain is None:
-                self.matrix_rain = MatrixRainCanvas(self.root, font_size=14, fps=30)
-                self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
-                self.matrix_rain.start()
-        except Exception as e:
-            logging.error("Failed to initialize Matrix digital rain backdrop: %s", e)
+        """Initialize ambient backdrop."""
+        pass
 
     def _start_backend_threads(self):
         """Start backend polling threads after UI is first rendered.
@@ -1735,12 +1728,21 @@ class ComfyUIApp:
             return "ComfyUIX — Matrix Edition (v5.0 · %d MB)" % mb
         return "ComfyUIX — Matrix Edition (v5.0)"
 
-    # ------------------------------------------------------------------
     def _build_sidebar(self):
-        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color="transparent")
+        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color=BG_SIDEBAR)
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
+
+        # Mount live Matrix digital rain inside sidebar canvas
+        try:
+            from glass import MatrixRainCanvas
+            self.sidebar_rain = MatrixRainCanvas(sb, font_size=13, fps=20)
+            self.sidebar_rain.place(x=0, y=0, relwidth=1, relheight=1)
+            self.sidebar_rain.tk.call("lower", self.sidebar_rain._w)
+            self.sidebar_rain.start()
+        except Exception as e:
+            logging.error("Failed to initialize sidebar Matrix rain: %s", e)
 
         # Logo header
         # Matrix Top Wordmark & Cyber Pill
