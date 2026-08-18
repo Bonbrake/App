@@ -1,0 +1,9 @@
+{
+  "build": "v5.0.0-Matrix",
+  "version": "5.0.0",
+  "commit": "2f7bb48",
+  "release_date": "2026-08-18",
+  "edition": "Matrix Edition Pro",
+  "qa_status": "110/110 Passed",
+  "last_check": 0
+}

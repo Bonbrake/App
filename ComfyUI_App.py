@@ -8110,7 +8110,7 @@ class ComfyUIApp:
         repo_menu.grid(row=0, column=1, padx=4, sticky="w")
 
         local_info = github_updater.get_local_build_info()
-        status_lbl = ctk.CTkLabel(card, text=f"Local Version: {local_info.get('build', 'v4.1.0')} (Commit: {local_info.get('commit', 'latest')}) • Status: Ready",
+        status_lbl = ctk.CTkLabel(card, text=f"Local Version: {local_info.get('build', 'v5.0.0-Matrix')} (Commit: {local_info.get('commit', 'latest')}) • Status: Ready",
                                   font=ctk.CTkFont(family="Consolas", size=9), text_color=TEXT_MUTED)
         status_lbl.grid(row=1, column=0, padx=12, pady=(0, 8), sticky="w")
 

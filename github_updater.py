@@ -36,7 +36,7 @@ def get_local_build_info():
                 return json.load(f)
         except Exception:
             pass
-    return {"build": "v4.1.0", "commit": "local", "last_check": 0}
+    return {"build": "v5.0.0-Matrix", "commit": "local", "last_check": 0}
 
 def save_local_build_info(info):
     repo_dir = os.path.dirname(os.path.abspath(__file__))

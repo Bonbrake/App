@@ -1,10 +1,10 @@
 # ComfyUIX & Matrix HUD Automated QA Verification Report
 
-- **Execution Timestamp**: `2026-08-18T10:59:51.852492`
+- **Execution Timestamp**: `2026-08-18T11:05:00.571901`
 - **Total Test Assertions**: `53`
 - **Passed Assertions**: `53` (`100.0%`)
 - **Failed Assertions**: `0`
-- **Total Duration**: `15.42 seconds`
+- **Total Duration**: `15.48 seconds`
 
 ## Test Results by Category
 
@@ -25,7 +25,7 @@
 | **Cross-Browser Doctor** | `Browser Launch Command Formatter` | ✔ `PASS` | Command: ['C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe', 'http://127.0.0.1:8188'] |
 | **Desktop Shortcut Integrity** | `Desktop Shortcut Verification` | ✔ `PASS` | Desktop shortcut is verified and healthy. |
 | **Desktop Shortcut Integrity** | `Shortcut Target Binary Resolution` | ✔ `PASS` | Target: C:\Users\jakeb\AppData\Local\Programs\ComfyUIX\ComfyUIX.exe |
-| **Process Lifecycle & OS Job Objects** | `Windows Job Object Initialization` | ✔ `PASS` | Job handle: 936 \| KillOnClose: True |
+| **Process Lifecycle & OS Job Objects** | `Windows Job Object Initialization` | ✔ `PASS` | Job handle: 928 \| KillOnClose: True |
 | **Process Lifecycle & OS Job Objects** | `Pre-Flight Orphan Port Reclamation` | ✔ `PASS` | Port 8188 orphan reaped: None |
 | **Process Lifecycle & OS Job Objects** | `BackendManager Hardware & Job Binding` | ✔ `PASS` | BackendManager active GPU: medvram (8GB-10GB) |
 | **Geometry & Display Bounds Safety** | `Valid In-Bounds Geometry` | ✔ `PASS` | Result: 1280x1120+100+100 |
@@ -55,7 +55,7 @@
 | **Desktop GUI & Navigation** | `QoL Toggle: qol_vram_readout` | ✔ `PASS` | Current state: 1 |
 | **Desktop GUI & Navigation** | `QoL Toggle: qol_copy_path` | ✔ `PASS` | Current state: 1 |
 | **Desktop GUI & Navigation** | `App In-Memory Diagnostic Self-Test` | ✔ `PASS` | Ran _debug_diagnose() with 100% nominal output |
-| **Desktop GUI & Navigation** | `Real-Time Telemetry Engine` | ✔ `PASS` | Live Telemetry: 1261MB / 8192MB (15.4%) \| GPU: True |
+| **Desktop GUI & Navigation** | `Real-Time Telemetry Engine` | ✔ `PASS` | Live Telemetry: 1288MB / 8192MB (15.7%) \| GPU: True |
 | **Desktop GUI & Navigation** | `Cancel Generation Lifecycle Protocol` | ✔ `PASS` | Atomic cancellation lock release and UI state reset verified |
 | **Desktop GUI & Navigation** | `Input Media Pickers & Gallery Workflows` | ✔ `PASS` | Verified _pick_input, _pick_upscale, and gallery send-to workflows |
 | **Matrix HUD Companion** | `HUD AST Parsing` | ✔ `PASS` | Parsed 38 AST nodes in hermes_app.py |
@@ -70,7 +70,7 @@
   "gpu_summary": "Summary: NVIDIA GeForce RTX 2070 SUPER | VRAM: 8.0 GB | Vendor: NVIDIA | Mode: medvram (8GB-10GB)",
   "browsers_detected": "Found 2 browsers: Brave Browser, Google Chrome",
   "shortcut_status": "Desktop shortcut is verified and healthy.",
-  "job_objects": "Job handle: 936 | KillOnClose: True",
+  "job_objects": "Job handle: 928 | KillOnClose: True",
   "hud_pill_states": "Red (27b), Blue (35b), Idle all verified"
 }
 ```
