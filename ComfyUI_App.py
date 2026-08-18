@@ -5695,15 +5695,23 @@ class ComfyUIApp:
             logging.error("switch_tab error: %s", e)
 
     def _update_tab_button_colors(self):
-        """Ensure active tab has black text (#000000) on neon green BRAND for maximum readability."""
+        """Ensure active tab has black text (#000000) on neon green BRAND with instant delta updates."""
         try:
             if hasattr(self, "tabview") and hasattr(self.tabview, "_segmented_button"):
                 cur = self.tabview.get()
-                for name, btn in self.tabview._segmented_button._buttons_dict.items():
+                prev = getattr(self, "_prev_tab_color_name", None)
+                if prev == cur:
+                    return
+                self._prev_tab_color_name = cur
+                buttons = self.tabview._segmented_button._buttons_dict
+                if not hasattr(self, "_font_tab_bold"):
+                    self._font_tab_bold = ctk.CTkFont(family="Consolas", size=11, weight="bold")
+                    self._font_tab_normal = ctk.CTkFont(family="Consolas", size=11, weight="normal")
+                for name, btn in buttons.items():
                     if name == cur:
-                        btn.configure(text_color="#000000", font=ctk.CTkFont(family="Consolas", size=11, weight="bold"))
-                    else:
-                        btn.configure(text_color="#CBD5E1", font=ctk.CTkFont(family="Consolas", size=11, weight="normal"))
+                        btn.configure(text_color="#000000", font=self._font_tab_bold)
+                    elif prev is None or name == prev:
+                        btn.configure(text_color="#CBD5E1", font=self._font_tab_normal)
         except Exception:
             pass
 
@@ -7986,12 +7994,15 @@ class ComfyUIApp:
         self._paint_header()
 
     def _paint_header(self):
-        """Paint the header gradient background cleanly."""
-        if not self._running:
+        """Paint the header gradient background cleanly with resolution memoization."""
+        if not getattr(self, "_running", True):
             return
         try:
             w = max(self.root.winfo_width() - 230, 400)
             h = 56
+            if getattr(self, "_last_header_w", None) == w and hasattr(self, "_header_img") and self._header_img:
+                return
+            self._last_header_w = w
             c0 = (20, 20, 24)
             c1 = (35, 35, 42)
             grad = make_gradient(w, h, c0, c1, angle=90)
@@ -9328,9 +9339,9 @@ class ComfyUIApp:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-        # Schedule next tick in 1500ms
+        # Schedule next tick in 3000ms
         try:
-            self.root.after(1500, self._update_telemetry_tick)
+            self.root.after(3000, self._update_telemetry_tick)
         except Exception:
             pass
 
