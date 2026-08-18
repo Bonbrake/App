@@ -4710,6 +4710,9 @@ class ComfyUIApp:
         # 1-Click Matrix Model Vault Embedded Section
         r = self._build_embedded_model_vault(sf.inner, r)
 
+        # Online GitHub Updater & Live Patching Section
+        r = self._build_github_updater_section(sf.inner, r)
+
         ctk.CTkLabel(sf.inner, text="Changes to directories, paths, and GPU flags require a backend restart to take effect.",
                      font=ctk.CTkFont(size=9), text_color=TEXT_MUTED).grid(row=r, column=0, padx=12, pady=(12, 16), sticky="w")
         sf._on_inner_configure()
@@ -7281,6 +7284,114 @@ class ComfyUIApp:
 
             if not item.get("installed"):
                 _bind_embedded_dl()
+
+        return r
+
+    def _build_github_updater_section(self, parent, r):
+        """Build the Online GitHub Auto-Updater & Live Patching card in Settings."""
+        import github_updater
+
+        # Section Header
+        hdr_row = ctk.CTkFrame(parent, fg_color="transparent")
+        hdr_row.grid(row=r, column=0, padx=10, pady=(16, 6), sticky="ew")
+        hdr_row.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(hdr_row, text="🌐 ONLINE GITHUB UPDATES & LIVE PATCHING",
+                     font=ctk.CTkFont(size=12, weight="bold"), text_color=TEXT).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(hdr_row, text="GITHUB LIVE SYNC", font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+                     fg_color=ACCENT_CYAN, text_color="#000000", corner_radius=4, padx=6, pady=2).grid(row=0, column=1, sticky="e")
+        r += 1
+
+        ctk.CTkLabel(parent, text="Update ComfyUIX directly from GitHub without needing to rebuild or re-download the full 273MB installer. Fetches the latest master scripts and hot-patches in < 1 second.",
+                     font=ctk.CTkFont(size=10), text_color=TEXT_MUTED, wraplength=620, justify="left").grid(row=r, column=0, padx=10, pady=(0, 10), sticky="w")
+        r += 1
+
+        # Updater card
+        card = ctk.CTkFrame(parent, fg_color=BG_CARD_ALT, corner_radius=8, border_width=1, border_color=BORDER_MUTED)
+        card.grid(row=r, column=0, padx=10, pady=(0, 12), sticky="ew")
+        card.grid_columnconfigure(0, weight=1)
+        r += 1
+
+        # Card top row: repo selection & info
+        top_row = ctk.CTkFrame(card, fg_color="transparent")
+        top_row.grid(row=0, column=0, padx=12, pady=(10, 6), sticky="ew")
+        top_row.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(top_row, text="Repository Source:", font=ctk.CTkFont(size=10, weight="bold"), text_color=TEXT).grid(row=0, column=0, padx=(0, 8), sticky="w")
+        repo_var = tk.StringVar(value="Ltmonkeysmash/ComfyUIX")
+        repo_menu = ctk.CTkOptionMenu(top_row, values=["Ltmonkeysmash/ComfyUIX", "Bonbrake/App"], variable=repo_var,
+                                      fg_color=BG_CARD, button_color=BORDER_MUTED, text_color=TEXT, font=ctk.CTkFont(size=10))
+        repo_menu.grid(row=0, column=1, padx=4, sticky="w")
+
+        local_info = github_updater.get_local_build_info()
+        status_lbl = ctk.CTkLabel(card, text=f"Local Version: {local_info.get('build', 'v2.4.0')} (Commit: {local_info.get('commit', 'latest')}) • Status: Ready",
+                                  font=ctk.CTkFont(family="Consolas", size=9), text_color=TEXT_MUTED)
+        status_lbl.grid(row=1, column=0, padx=12, pady=(0, 8), sticky="w")
+
+        prog_bar = ctk.CTkProgressBar(card, height=8, fg_color=BG_CARD, progress_color=BRAND)
+        prog_bar.set(0.0)
+
+        # Buttons row
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.grid(row=2, column=0, padx=12, pady=(0, 10), sticky="ew")
+        btn_row.grid_columnconfigure(0, weight=1)
+        btn_row.grid_columnconfigure(1, weight=1)
+        btn_row.grid_columnconfigure(2, weight=1)
+
+        check_btn = ctk.CTkButton(btn_row, text="🔍 Check for Updates", height=28, fg_color=BG_SIDEBAR, hover_color=BRAND_HOVER,
+                                  text_color=TEXT, font=self.FONT_SMALL_BOLD)
+        update_btn = ctk.CTkButton(btn_row, text="⬇️ 1-Click Update from GitHub", height=28, fg_color=BRAND, hover_color=BRAND_HOVER,
+                                   text_color=BG_APP, font=self.FONT_SMALL_BOLD)
+        open_repo_btn = ctk.CTkButton(btn_row, text="🌐 Open GitHub Repo", height=28, fg_color=BG_SIDEBAR, hover_color=BRAND_HOVER,
+                                      text_color=ACCENT_CYAN, font=self.FONT_SMALL_BOLD)
+
+        check_btn.grid(row=0, column=0, padx=3, sticky="ew")
+        update_btn.grid(row=0, column=1, padx=3, sticky="ew")
+        open_repo_btn.grid(row=0, column=2, padx=3, sticky="ew")
+
+        def _open_repo():
+            import webbrowser
+            webbrowser.open(f"https://github.com/{repo_var.get()}")
+
+        open_repo_btn.configure(command=_open_repo)
+
+        def _check_updates():
+            status_lbl.configure(text="Checking GitHub API for updates...", text_color=ACCENT_CYAN)
+            def _worker():
+                res = github_updater.check_for_updates(repo=repo_var.get(), branch="master" if "ComfyUIX" in repo_var.get() else "main")
+                def _gui():
+                    if res.get("success"):
+                        msg = f"Latest on GitHub: {res.get('latest_sha')} - \"{res.get('latest_msg')}\""
+                        status_lbl.configure(text=msg, text_color="#00FF66")
+                        self._set_status(f"GitHub Check: {res.get('latest_sha')}")
+                    else:
+                        status_lbl.configure(text=f"Check failed: {res.get('error')}", text_color="#FFAAAA")
+                self.root.after(0, _gui)
+            threading.Thread(target=_worker, daemon=True).start()
+
+        check_btn.configure(command=_check_updates)
+
+        def _do_update():
+            update_btn.configure(state="disabled", text="Updating...")
+            prog_bar.grid(row=3, column=0, padx=12, pady=(0, 10), sticky="ew")
+            def _worker():
+                def _prog(msg, pct):
+                    self.root.after(0, lambda: (
+                        status_lbl.configure(text=msg, text_color=ACCENT_CYAN),
+                        prog_bar.set(pct)
+                    ))
+                res = github_updater.apply_script_update(repo=repo_var.get(), branch="master" if "ComfyUIX" in repo_var.get() else "main", progress_callback=_prog)
+                def _done():
+                    if res.get("success"):
+                        status_lbl.configure(text=f"✅ Live Update Complete! ({len(res.get('files_updated', []))} files updated). Hit '⚡ Hot Reload UI' or restart app.", text_color="#00FF66")
+                        update_btn.configure(state="normal", text="✅ Up to Date")
+                        self._set_status("GitHub Live Update Complete!")
+                    else:
+                        status_lbl.configure(text="Update failed. Check network connection.", text_color="#FFAAAA")
+                        update_btn.configure(state="normal", text="⟳ Retry Update")
+                self.root.after(0, _done)
+            threading.Thread(target=_worker, daemon=True).start()
+
+        update_btn.configure(command=_do_update)
 
         return r
 
