@@ -921,25 +921,25 @@ try:
 except Exception:
     pass
 
-BG_APP = ("#E6F4EA", "#040A06")          # Deep Matrix Obsidian Green
-BG_SIDEBAR = ("#D1E7DD", "#020704")      # Dark Obsidian Glass
-BG_CARD = ("#F0FDF4", "#08150D")         # Cyber Green Tinted Glass Card
-BG_CARD_ALT = ("#DCFCE7", "#0D2015")     # Deep Tech Card Fill
-BORDER = ("#86EFAC", "#00FF66")          # Electric Matrix Neon Green
-BORDER_MUTED = ("#4ADE80", "#144524")    # Matrix Muted Cyber Green
-TEXT = ("#022C22", "#E6FFF0")            # Matrix Phosphor White-Green
-TEXT_MUTED = ("#059669", "#4ADE80")      # Matrix Soft Green
+BG_APP = ("#000000", "#000000")          # Pure Pitch Black Backdrop
+BG_SIDEBAR = ("#040A06", "#040A06")      # Deep Matrix Obsidian Black Sidebar
+BG_CARD = ("#08150D", "#08150D")         # Cyber Green Tinted Glass Card
+BG_CARD_ALT = ("#0D2015", "#0D2015")     # Deep Tech Card Fill
+BORDER = ("#00FF66", "#00FF66")          # Electric Matrix Neon Green
+BORDER_MUTED = ("#144524", "#144524")    # Matrix Muted Cyber Green
+TEXT = ("#E6FFF0", "#E6FFF0")            # Matrix Phosphor White-Green
+TEXT_MUTED = ("#4ADE80", "#4ADE80")      # Matrix Soft Green
 TEXT_DIM = TEXT_MUTED                    # alias, matches 194MB monolith symbol name
-BRAND = ("#059669", "#00FF66")           # Pure Matrix Neon Green
-BRAND_HOVER = ("#047857", "#39FF14")     # High Voltage Lime
-ACCENT2 = ("#059669", "#00FF66")         # High-energy Cyber Green
-ACCENT2_HOVER = ("#047857", "#00E555")
-ACCENT_CYAN = ("#0284C7", "#00E5FF")     # Matrix Blue/Cyan Pill Accent
-DROPDOWN_FG = ("#F0FDF4", "#061209")
-DROPDOWN_TEXT = ("#022C22", "#00FF66")
-DROPDOWN_HOVER = ("#DCFCE7", "#0F2E1A")
-DROPDOWN_BTN_BG = ("#DCFCE7", "#123820")      # Dark Cyber Emerald Dropdown Arrow Button
-DROPDOWN_BTN_HOVER = ("#BBF7D0", "#1C5230")   # Dropdown Arrow Button Hover
+BRAND = ("#00FF66", "#00FF66")           # Pure Matrix Neon Green
+BRAND_HOVER = ("#39FF14", "#39FF14")     # High Voltage Lime
+ACCENT2 = ("#00FF66", "#00FF66")         # High-energy Cyber Green
+ACCENT2_HOVER = ("#00E555", "#00E555")
+ACCENT_CYAN = ("#00E5FF", "#00E5FF")     # Matrix Blue/Cyan Pill Accent
+DROPDOWN_FG = ("#061209", "#061209")
+DROPDOWN_TEXT = ("#00FF66", "#00FF66")
+DROPDOWN_HOVER = ("#0F2E1A", "#0F2E1A")
+DROPDOWN_BTN_BG = ("#123820", "#123820")      # Dark Cyber Emerald Dropdown Arrow Button
+DROPDOWN_BTN_HOVER = ("#1C5230", "#1C5230")   # Dropdown Arrow Button Hover
 TOOLTIP_DELAY = 500
 TOOLTIP_HIDE_DELAY = 100
 
@@ -1650,11 +1650,11 @@ class ComfyUIApp:
         self.config_manager.save()
 
     def _build_backdrop(self):
-        """Build and start real-time Matrix Digital Code Rain background canvas behind the main window."""
+        """Build and start real-time Matrix Digital Code Rain background canvas across the whole background."""
         try:
             from glass import MatrixRainCanvas
             if not hasattr(self, "matrix_rain") or self.matrix_rain is None:
-                self.matrix_rain = MatrixRainCanvas(self.root, font_size=14, fps=24)
+                self.matrix_rain = MatrixRainCanvas(self.root, font_size=14, fps=24, bg="#000000")
                 self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
                 self.matrix_rain.tk.call("lower", self.matrix_rain._w)
                 self.matrix_rain.start()
@@ -1738,20 +1738,10 @@ class ComfyUIApp:
 
     # ------------------------------------------------------------------
     def _build_sidebar(self):
-        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color="transparent")
+        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color="#040A06", border_width=1, border_color="#0D2416")
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
-
-        # Real-time Matrix Digital Code Rain focused exclusively on the left sidebar
-        try:
-            from glass import MatrixRainCanvas
-            self.matrix_rain = MatrixRainCanvas(sb, font_size=11, fps=20)
-            self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
-            self.matrix_rain.tk.call("lower", self.matrix_rain._w)
-            self.matrix_rain.start()
-        except Exception as e:
-            logging.debug("Sidebar matrix rain initialization: %s", e)
 
         # Logo header
         # Matrix Top Wordmark & Cyber Pill

@@ -176,7 +176,7 @@ class MatrixRainCanvas(tk.Canvas):
     CHARS = list("ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+-*/<>$#@%&")
 
     def __init__(self, master, font_size=14, fps=24, **kwargs):
-        kwargs.setdefault("bg", "#040A06")
+        kwargs.setdefault("bg", "#000000")
         kwargs.setdefault("highlightthickness", 0)
         super().__init__(master, **kwargs)
         self.font_size = font_size
@@ -214,7 +214,7 @@ class MatrixRainCanvas(tk.Canvas):
         self.drops = [random.randint(-h // self.font_size, 0) for _ in range(cols)]
         try:
             from PIL import Image, ImageDraw, ImageTk
-            self._pil_img = Image.new("RGB", (w, h), "#040A06")
+            self._pil_img = Image.new("RGB", (w, h), "#000000")
             self._draw = ImageDraw.Draw(self._pil_img)
             self._photo = ImageTk.PhotoImage(self._pil_img)
             self.delete("all")
@@ -235,7 +235,7 @@ class MatrixRainCanvas(tk.Canvas):
 
         try:
             # Semi-transparent dark overlay (fading trail effect from Project30Hub/Matrix-Digital-Rain)
-            fade = Image.new("RGBA", (w, h), (4, 10, 6, 28))
+            fade = Image.new("RGBA", (w, h), (0, 0, 0, 28))
             self._pil_img.paste(Image.blend(self._pil_img.convert("RGBA"), fade, 0.16).convert("RGB"))
             self._draw = ImageDraw.Draw(self._pil_img)
 
