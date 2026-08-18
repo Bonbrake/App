@@ -84,8 +84,8 @@ Ensure you have **Python 3.11** installed on Windows.
 
 ```powershell
 # 1. Clone the repository
-git clone https://github.com/Ltmonkeysmash/ComfyUIX.git
-cd ComfyUIX
+git clone https://github.com/Bonbrake/App.git
+cd App
 
 # 2. Install dependencies
 pip install -r requirements.txt

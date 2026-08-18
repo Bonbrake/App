@@ -7317,13 +7317,13 @@ class ComfyUIApp:
         top_row.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(top_row, text="Repository Source:", font=ctk.CTkFont(size=10, weight="bold"), text_color=TEXT).grid(row=0, column=0, padx=(0, 8), sticky="w")
-        repo_var = tk.StringVar(value="Ltmonkeysmash/ComfyUIX")
-        repo_menu = ctk.CTkOptionMenu(top_row, values=["Ltmonkeysmash/ComfyUIX", "Bonbrake/App"], variable=repo_var,
+        repo_var = tk.StringVar(value="Bonbrake/App")
+        repo_menu = ctk.CTkOptionMenu(top_row, values=["Bonbrake/App", "Ltmonkeysmash/ComfyUIX"], variable=repo_var,
                                       fg_color=BG_CARD, button_color=BORDER_MUTED, text_color=TEXT, font=ctk.CTkFont(size=10))
         repo_menu.grid(row=0, column=1, padx=4, sticky="w")
 
         local_info = github_updater.get_local_build_info()
-        status_lbl = ctk.CTkLabel(card, text=f"Local Version: {local_info.get('build', 'v2.4.0')} (Commit: {local_info.get('commit', 'latest')}) • Status: Ready",
+        status_lbl = ctk.CTkLabel(card, text=f"Local Version: {local_info.get('build', 'v4.1.0')} (Commit: {local_info.get('commit', 'latest')}) • Status: Ready",
                                   font=ctk.CTkFont(family="Consolas", size=9), text_color=TEXT_MUTED)
         status_lbl.grid(row=1, column=0, padx=12, pady=(0, 8), sticky="w")
 
@@ -7357,7 +7357,7 @@ class ComfyUIApp:
         def _check_updates():
             status_lbl.configure(text="Checking GitHub API for updates...", text_color=ACCENT_CYAN)
             def _worker():
-                res = github_updater.check_for_updates(repo=repo_var.get(), branch="master" if "ComfyUIX" in repo_var.get() else "main")
+                res = github_updater.check_for_updates(repo=repo_var.get(), branch="main" if "Bonbrake" in repo_var.get() else "master")
                 def _gui():
                     if res.get("success"):
                         msg = f"Latest on GitHub: {res.get('latest_sha')} - \"{res.get('latest_msg')}\""
@@ -7763,28 +7763,28 @@ def main():
     # process, raises that window to front, and exits — so a double-click
     # or accidental second click can never spawn a 2nd GUI + 2nd backend.
     # ------------------------------------------------------------------
-    _SINGLE_INSTANCE_MUTEX = "Global\\ComfyUIX_SingleInstance_v1"
+    # SINGLE-INSTANCE GUARD (root-cause fix for "two apps open from shortcut")
+    # Uses local mutex with process-level re-entrancy protection.
+    # ------------------------------------------------------------------
     _already_running = False
     _mutex_handle = None
-    if os.name == "nt":
+    if os.name == "nt" and os.environ.get("COMFYUIX_MUTEX_OWNED") != "1":
         try:
             import ctypes
             _kernel32 = ctypes.windll.kernel32
-            # 0x1F0001 = CREATE_MUTEX with SYNCHRONIZE|MUTEX_ALL_ACCESS-ish
-            _mutex_handle = _kernel32.CreateMutexW(None, 1, _SINGLE_INSTANCE_MUTEX)
+            _mutex_handle = _kernel32.CreateMutexW(None, 1, "Local\\ComfyUIX_SingleInstance_v2")
             _last_err = _kernel32.GetLastError()
             if _mutex_handle == 0 or _last_err == 183:  # ERROR_ALREADY_EXISTS (183)
                 _already_running = True
+            else:
+                os.environ["COMFYUIX_MUTEX_OWNED"] = "1"
         except Exception:
-            # If we can't create the mutex, fail OPEN (don't block launch).
             _already_running = False
+
     if _already_running:
         try:
             import ctypes
             _user32 = ctypes.windll.user32
-            _hwnd = _user32.FindWindowW(None, None)
-            # Find the existing ComfyUIX window by its class/title.
-            # CTk uses a Tk toplevel; enumerate windows to match our title.
             _target = None
             def _enum(hwnd, _):
                 nonlocal _target
@@ -7792,7 +7792,7 @@ def main():
                     return True
                 _buf = ctypes.create_unicode_buffer(256)
                 _user32.GetWindowTextW(hwnd, _buf, 256)
-                if _buf.value and ("ComfyUIX" in _buf.value):
+                if _buf.value and ("ComfyUIX" in _buf.value or "ComfyUI" in _buf.value):
                     _target = hwnd
                 return True
             _EnumWindows = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -7800,7 +7800,7 @@ def main():
             if _target:
                 _user32.ShowWindow(_target, 9)  # SW_RESTORE = 9
                 _user32.SetForegroundWindow(_target)
-            print("ComfyUIX already running — brought existing window to front; this instance will exit.")
+            print("ComfyUIX already running -> brought existing window to front; this instance will exit.")
         except Exception:
             pass
         sys.exit(0)
@@ -7820,9 +7820,9 @@ def main():
             if os.path.isfile(script_path):
                 try:
                     import importlib.util
+                    os.environ["COMFYUIX_NO_PATCH"] = "1"
                     spec = importlib.util.spec_from_file_location("__main_patched__", script_path)
                     if spec and spec.loader:
-                        os.environ["COMFYUIX_NO_PATCH"] = "1"
                         mod = importlib.util.module_from_spec(spec)
                         spec.loader.exec_module(mod)
                         if hasattr(mod, "main"):

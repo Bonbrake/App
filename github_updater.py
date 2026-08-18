@@ -13,8 +13,7 @@ import urllib.error
 import threading
 
 DEFAULT_REPOS = [
-    {"name": "ComfyUIX (Primary)", "repo": "Ltmonkeysmash/ComfyUIX", "branch": "master"},
-    {"name": "Bonbrake App (Mirror)", "repo": "Bonbrake/App", "branch": "main"},
+    {"name": "Bonbrake App (Official)", "repo": "Bonbrake/App", "branch": "main"},
 ]
 
 TRACKED_SCRIPTS = [
@@ -37,7 +36,7 @@ def get_local_build_info():
                 return json.load(f)
         except Exception:
             pass
-    return {"build": "v2.4.0", "commit": "local", "last_check": 0}
+    return {"build": "v4.1.0", "commit": "local", "last_check": 0}
 
 def save_local_build_info(info):
     repo_dir = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +47,7 @@ def save_local_build_info(info):
     except Exception:
         pass
 
-def check_for_updates(repo="Ltmonkeysmash/ComfyUIX", branch="master"):
+def check_for_updates(repo="Bonbrake/App", branch="main"):
     """
     Check GitHub REST API for latest commits and releases.
     Returns dict with update status and metadata.
@@ -108,7 +107,7 @@ def check_for_updates(repo="Ltmonkeysmash/ComfyUIX", branch="master"):
         
     return res
 
-def apply_script_update(repo="Ltmonkeysmash/ComfyUIX", branch="master", progress_callback=None):
+def apply_script_update(repo="Bonbrake/App", branch="main", progress_callback=None):
     """
     Download and apply raw Python script updates from GitHub into local application directories.
     """
