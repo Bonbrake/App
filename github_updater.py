@@ -1,6 +1,6 @@
 """
 github_updater.py - Online GitHub Live Auto-Updater for ComfyUIX Pro & Matrix HUD
-Checks for updates from GitHub (Ltmonkeysmash/ComfyUIX or Bonbrake/App) and applies
+Checks for updates from official GitHub (Bonbrake/ComfyUIX) and applies
 script patches or installer downloads in 1-click.
 """
 import os
@@ -178,7 +178,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(" 🌐 COMFYUIX ONLINE GITHUB UPDATER")
     print("=" * 60)
-    print("[*] Checking for updates on Ltmonkeysmash/ComfyUIX...")
+    print("[*] Checking for updates on Bonbrake/ComfyUIX...")
     up = check_for_updates()
     print("Result:", json.dumps(up, indent=2))
     if up.get("latest_sha"):
