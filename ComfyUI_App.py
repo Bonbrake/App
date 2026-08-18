@@ -921,25 +921,25 @@ try:
 except Exception:
     pass
 
-BG_APP = ("#000000", "#000000")          # Pure Pitch Black Backdrop
-BG_SIDEBAR = ("#040A06", "#040A06")      # Deep Matrix Obsidian Black Sidebar
-BG_CARD = ("#08150D", "#08150D")         # Cyber Green Tinted Glass Card
-BG_CARD_ALT = ("#0D2015", "#0D2015")     # Deep Tech Card Fill
-BORDER = ("#00FF66", "#00FF66")          # Electric Matrix Neon Green
-BORDER_MUTED = ("#144524", "#144524")    # Matrix Muted Cyber Green
-TEXT = ("#E6FFF0", "#E6FFF0")            # Matrix Phosphor White-Green
-TEXT_MUTED = ("#4ADE80", "#4ADE80")      # Matrix Soft Green
+BG_APP = ("#E6F4EA", "#040A06")          # Deep Matrix Obsidian Green
+BG_SIDEBAR = ("#D1E7DD", "#020704")      # Dark Obsidian Glass
+BG_CARD = ("#F0FDF4", "#08150D")         # Cyber Green Tinted Glass Card
+BG_CARD_ALT = ("#DCFCE7", "#0D2015")     # Deep Tech Card Fill
+BORDER = ("#86EFAC", "#00FF66")          # Electric Matrix Neon Green
+BORDER_MUTED = ("#4ADE80", "#144524")    # Matrix Muted Cyber Green
+TEXT = ("#022C22", "#E6FFF0")            # Matrix Phosphor White-Green
+TEXT_MUTED = ("#059669", "#4ADE80")      # Matrix Soft Green
 TEXT_DIM = TEXT_MUTED                    # alias, matches 194MB monolith symbol name
-BRAND = ("#00FF66", "#00FF66")           # Pure Matrix Neon Green
-BRAND_HOVER = ("#39FF14", "#39FF14")     # High Voltage Lime
-ACCENT2 = ("#00FF66", "#00FF66")         # High-energy Cyber Green
-ACCENT2_HOVER = ("#00E555", "#00E555")
-ACCENT_CYAN = ("#00E5FF", "#00E5FF")     # Matrix Blue/Cyan Pill Accent
-DROPDOWN_FG = ("#061209", "#061209")
-DROPDOWN_TEXT = ("#00FF66", "#00FF66")
-DROPDOWN_HOVER = ("#0F2E1A", "#0F2E1A")
-DROPDOWN_BTN_BG = ("#123820", "#123820")      # Dark Cyber Emerald Dropdown Arrow Button
-DROPDOWN_BTN_HOVER = ("#1C5230", "#1C5230")   # Dropdown Arrow Button Hover
+BRAND = ("#059669", "#00FF66")           # Pure Matrix Neon Green
+BRAND_HOVER = ("#047857", "#39FF14")     # High Voltage Lime
+ACCENT2 = ("#059669", "#00FF66")         # High-energy Cyber Green
+ACCENT2_HOVER = ("#047857", "#00E555")
+ACCENT_CYAN = ("#0284C7", "#00E5FF")     # Matrix Blue/Cyan Pill Accent
+DROPDOWN_FG = ("#F0FDF4", "#061209")
+DROPDOWN_TEXT = ("#022C22", "#00FF66")
+DROPDOWN_HOVER = ("#DCFCE7", "#0F2E1A")
+DROPDOWN_BTN_BG = ("#DCFCE7", "#123820")      # Dark Cyber Emerald Dropdown Arrow Button
+DROPDOWN_BTN_HOVER = ("#BBF7D0", "#1C5230")   # Dropdown Arrow Button Hover
 TOOLTIP_DELAY = 500
 TOOLTIP_HIDE_DELAY = 100
 
@@ -1650,13 +1650,12 @@ class ComfyUIApp:
         self.config_manager.save()
 
     def _build_backdrop(self):
-        """Build and start real-time Matrix Digital Code Rain background canvas across the whole background."""
+        """Build and start real-time Matrix Digital Code Rain background canvas."""
         try:
             from glass import MatrixRainCanvas
             if not hasattr(self, "matrix_rain") or self.matrix_rain is None:
-                self.matrix_rain = MatrixRainCanvas(self.root, font_size=14, fps=24, bg="#000000")
+                self.matrix_rain = MatrixRainCanvas(self.root, font_size=14, fps=30)
                 self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
-                self.matrix_rain.tk.call("lower", self.matrix_rain._w)
                 self.matrix_rain.start()
         except Exception as e:
             logging.error("Failed to initialize Matrix digital rain backdrop: %s", e)
@@ -1738,20 +1737,10 @@ class ComfyUIApp:
 
     # ------------------------------------------------------------------
     def _build_sidebar(self):
-        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color="#040A06", border_width=1, border_color="#0D2416")
+        sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color="transparent")
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
-
-        # Real-time Matrix Digital Code Rain in the left sidebar
-        try:
-            from glass import MatrixRainCanvas
-            self.sidebar_rain = MatrixRainCanvas(sb, font_size=12, fps=30)
-            self.sidebar_rain.place(x=0, y=0, relwidth=1, relheight=1)
-            self.sidebar_rain.tk.call("lower", self.sidebar_rain._w)
-            self.sidebar_rain.start()
-        except Exception as e:
-            logging.debug("Sidebar matrix rain initialization: %s", e)
 
         # Logo header
         # Matrix Top Wordmark & Cyber Pill
@@ -1830,11 +1819,11 @@ class ComfyUIApp:
         hud_txc = "#00FF66" if is_hud_up else "#FF4444"
         hud_bc = "#1C4A36" if is_hud_up else "#4A1C1C"
         self.sidebar_status_label = ctk.CTkButton(sb, text=hud_txt, height=28, corner_radius=6,
-                                                  fg_color=hud_fg, border_width=1, border_color=hud_bc,
-                                                  hover_color=BRAND_HOVER,
-                                                  text_color=hud_txc,
-                                                  command=self._toggle_matrix_hud,
-                                                  font=self.FONT_SMALL_BOLD)
+                                                 fg_color=hud_fg, border_width=1, border_color=hud_bc,
+                                                 hover_color=BRAND_HOVER,
+                                                 text_color=hud_txc,
+                                                 command=self._toggle_matrix_hud,
+                                                 font=self.FONT_SMALL_BOLD)
         self.sidebar_status_label.grid(row=r, column=0, padx=12, pady=(4, 4), sticky="ew")
         ToolTip(self.sidebar_status_label, ("Matrix AI HUD", "Click to launch / focus Matrix AI HUD companion app."))
         r += 1
@@ -2879,8 +2868,8 @@ class ComfyUIApp:
         # silently swallows every left-click from CTk widgets and makes the app
         # feel dead. Debounce is handled per-handler only (see _on_tab, _on_model, etc.).
 
-        self.top = ctk.CTkFrame(self.root, fg_color=BG_SIDEBAR, corner_radius=12, border_width=1, border_color=BORDER_MUTED)
-        self.top.grid(row=0, column=1, padx=(6, 16), pady=12, sticky="nsew")
+        self.top = ctk.CTkFrame(self.root, fg_color="transparent", corner_radius=0)
+        self.top.grid(row=0, column=1, padx=16, pady=12, sticky="nsew")
         self.top.grid_columnconfigure(0, weight=1)   # params column
         self.top.grid_columnconfigure(0, weight=1, minsize=320)   # params column
         self.top.grid_columnconfigure(1, weight=0, minsize=260)   # preview column
@@ -6917,10 +6906,9 @@ class ComfyUIApp:
         self._show_toast("Generation Cancelled", "Active job stopped by user")
 
     def _poll_history(self):
-        """Poll ComfyUI history asynchronously with zero UI thread blocking."""
-        if not self._running or getattr(self, "_is_cancelled", False) or not getattr(self, "_generate_lock", False):
+        """FIX: poll ComfyUI history with retries until done, error, or timeout."""
+        if not self._running or getattr(self, "_is_cancelled", False):
             return
-
         if self._poll_attempts > 600:
             self._set_status("Polling timed out")
             if hasattr(self, "gen_btn") and self.gen_btn and self.gen_btn.winfo_exists():
@@ -6930,63 +6918,54 @@ class ComfyUIApp:
             self._gen_start_time = None
             self._poll_started_at = None
             return
-
         self._poll_attempts += 1
-
-        def _worker():
-            try:
-                r = requests.get(COMFYUI_URL + "/history", timeout=3)
-                if r.status_code == 200:
-                    hist = r.json()
-                    for item_id, item in hist.items():
-                        status = item.get("status", {})
-                        if status.get("completed") and item_id == self.last_prompt_id:
-                            outs = item.get("outputs", {})
-                            def _handle_completed(outputs=outs):
-                                for node_id, node_out in outputs.items():
-                                    for img_data in node_out.get("images", []):
-                                        if img_data.get("type") == "output":
-                                            if str(img_data.get("filename", "")).lower().endswith(".mp4"):
-                                                self._show_video(img_data)
-                                            else:
-                                                self._show_image(img_data)
-                                    for vid_data in node_out.get("videos", []):
-                                        if vid_data.get("type") == "output":
-                                            self._show_video(vid_data)
-                                self._poll_started_at = None
-                            if hasattr(self, "root") and self.root:
-                                self.root.after(0, _handle_completed)
-                            return
-                        elif status.get("error") and (item_id == getattr(self, "last_prompt_id", None) or getattr(self, "last_prompt_id", None) is None):
-                            err_msg = status.get("error", {}).get("message", "") if isinstance(status.get("error"), dict) else str(status.get("error", ""))
-                            breadcrumb("gen_error", msg=err_msg[:120])
-                            def _handle_error(msg=err_msg):
-                                if "Spectrum" in msg or "spectrum" in msg.lower():
-                                    self._set_status("Spectrum error — retry without Spectrum (spectrum=False)")
-                                else:
-                                    self._set_status("Generation error: %s" % msg[:60])
-                                    self._show_toast("Generation Error", msg[:120], error=True)
-                                if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
-                                    self.gen_btn.configure(text="⚡ GENERATE (CTRL+E)", state="normal", fg_color=BRAND, hover_color=BRAND_HOVER, text_color="#001408", command=self._start_generate)
-                                self._reset_video_buttons()
-                                self._generate_lock = False
-                                self._gen_start_time = None
-                                self._poll_started_at = None
-                            if hasattr(self, "root") and self.root:
-                                self.root.after(0, _handle_error)
-                            return
-                        def _handle_eta(st=status, iid=item_id, einfo=status.get("exec_info")):
-                            self._update_eta(st, iid, einfo)
-                        if hasattr(self, "root") and self.root:
-                            self.root.after(0, _handle_eta)
-            except Exception:
-                pass
-
-            if self._running and getattr(self, "_generate_lock", False):
-                if hasattr(self, "root") and self.root:
-                    self.root.after(500, self._poll_history)
-
-        threading.Thread(target=_worker, daemon=True).start()
+        try:
+            r = requests.get(COMFYUI_URL + "/history", timeout=5)
+            if r.status_code == 200:
+                hist = r.json()
+                for item_id, item in hist.items():
+                    status = item.get("status", {})
+                    if status.get("completed") and item_id == self.last_prompt_id:
+                        outs = item.get("outputs", {})
+                        for node_id, node_out in outs.items():
+                            # ComfyUI 0.29: the "type":"output" marker lives on each
+                            # image dict INSIDE node_out["images"], NOT on the node itself
+                            # (node_out.get("type") is None). Iterate the images.
+                            for img_data in node_out.get("images", []):
+                                if img_data.get("type") == "output":
+                                    # Video outputs (.mp4) go through _show_video; images via _show_image
+                                    if str(img_data.get("filename", "")).lower().endswith(".mp4"):
+                                        self._show_video(img_data)
+                                    else:
+                                        self._show_image(img_data)
+                            # SaveVideo node emits a "videos" list (H3 video output)
+                            for vid_data in node_out.get("videos", []):
+                                if vid_data.get("type") == "output":
+                                    self._show_video(vid_data)
+                        # QOL: clear the started-time marker on completion
+                        self._poll_started_at = None
+                        return
+                    elif status.get("error") and (item_id == getattr(self, "last_prompt_id", None) or getattr(self, "last_prompt_id", None) is None):
+                        err_msg = status.get("error", {}).get("message", "") if isinstance(status.get("error"), dict) else str(status.get("error", ""))
+                        breadcrumb("gen_error", msg=err_msg[:120])
+                        if "Spectrum" in err_msg or "spectrum" in err_msg.lower():
+                            self._set_status("Spectrum error — retry without Spectrum (spectrum=False)")
+                        else:
+                            self._set_status("Generation error: %s" % err_msg[:60])
+                            self._show_toast("Generation Error", err_msg[:120], error=True)
+                        if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
+                            self.gen_btn.configure(text="⚡ GENERATE (CTRL+E)", state="normal", fg_color=BRAND, hover_color=BRAND_HOVER, text_color="#001408", command=self._start_generate)
+                        self._reset_video_buttons()
+                        self._generate_lock = False
+                        self._gen_start_time = None
+                        self._poll_started_at = None
+                        return
+                    # QOL: update ETA while job is still running
+                    self._update_eta(status, item_id, status.get("exec_info"))
+        except Exception:
+            pass
+        if self._running:
+            self.root.after(500, self._poll_history)
 
     def _update_eta(self, status, item_id, exec_info):
         """QOL: Display an estimated time remaining while a job is running.
@@ -7761,10 +7740,10 @@ class ComfyUIApp:
                 user32.EnumWindows(ENUMPROC(cb), 0)
                 if found:
                     return True
-            import socket
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(0.04)
-                if s.connect_ex(("127.0.0.1", 5119)) == 0:
+            import psutil
+            for p in psutil.process_iter(["name", "cmdline"]):
+                cmd = " ".join(p.info.get("cmdline") or []).lower()
+                if "hermes_app.py" in cmd:
                     return True
         except Exception:
             pass
@@ -8831,7 +8810,7 @@ class ComfyUIApp:
 
         # 3. Hermes LLM Proxy telemetry on :5119
         try:
-            r = requests.get("http://127.0.0.1:5119/admin/telemetry", timeout=0.15)
+            r = requests.get("http://127.0.0.1:5119/admin/telemetry", timeout=1.0)
             if r.status_code == 200:
                 h_data = r.json()
                 tps = h_data.get("tok_per_sec", 0.0)
