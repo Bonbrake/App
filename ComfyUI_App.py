@@ -1823,15 +1823,15 @@ class ComfyUIApp:
         scale.grid(row=r, column=0, padx=12, pady=(2, 8), sticky="ew")
         r += 1
 
-        # Matrix HUD Interactive Bridge Button with dynamic Green/Standby status (No Red)
+        # Matrix HUD Interactive Bridge Button with dynamic Green/Red status
         is_hud_up = self._is_matrix_hud_running() if hasattr(self, "_is_matrix_hud_running") else False
-        hud_txt = "🟢 Matrix HUD Online" if is_hud_up else "⚡ Matrix HUD Standby"
-        hud_fg = "#0D2818" if is_hud_up else BG_CARD
-        hud_txc = "#00FF66" if is_hud_up else TEXT_MUTED
-        hud_bc = "#1C4A36" if is_hud_up else BORDER_MUTED
+        hud_txt = "🟢 Matrix HUD Online" if is_hud_up else "🔴 Matrix HUD Offline"
+        hud_fg = "#0D2818" if is_hud_up else "#280D0D"
+        hud_txc = "#00FF66" if is_hud_up else "#FF4444"
+        hud_bc = "#1C4A36" if is_hud_up else "#4A1C1C"
         self.sidebar_status_label = ctk.CTkButton(sb, text=hud_txt, height=28, corner_radius=6,
                                                   fg_color=hud_fg, border_width=1, border_color=hud_bc,
-                                                  hover_color=BG_CARD_ALT,
+                                                  hover_color=BRAND_HOVER,
                                                   text_color=hud_txc,
                                                   command=self._toggle_matrix_hud,
                                                   font=self.FONT_SMALL_BOLD)
@@ -8775,10 +8775,10 @@ class ComfyUIApp:
                     )
                 else:
                     self.sidebar_status_label.configure(
-                        text="⚡ Matrix HUD Standby",
-                        fg_color=BG_CARD,
-                        text_color=TEXT_MUTED,
-                        border_color=BORDER_MUTED
+                        text="🔴 Matrix HUD Offline",
+                        fg_color="#280D0D",
+                        text_color="#FF4444",
+                        border_color="#4A1C1C"
                     )
         except Exception:
             pass
