@@ -426,6 +426,76 @@ class QATestRunner:
             self.record_test(cat, "Workflow Builders Exception", False, str(e))
 
     # -------------------------------------------------------------------------
+    # 12. SOTA 2026 Models, Presets & Aspect Ratio Math
+    # -------------------------------------------------------------------------
+    def test_sota_models_and_aspect_ratios(self):
+        cat = "SOTA 2026 Model Catalog & Presets"
+        try:
+            import config
+            # Check SOTA models presence
+            flagship_models = ["epiCRealism XL v5", "Juggernaut XL v11", "FLUX.1-schnell (4-Step DiT)", "SD 3.5 Large (8B MMDiT)", "Illustrious XL / Pony V6"]
+            for m in flagship_models:
+                exists = m in config.MODELS
+                self.record_test(cat, f"SOTA Model Definition: {m}", exists, f"Model key: {m} (SafeTensor: {config.MODELS.get(m, {}).get('file')})")
+
+            # Check Multiple-of-8 Clamp helper
+            test_dims = [(1023, 1016), (1025, 1024), (511, 504), (1340, 1336)]
+            for raw, expected in test_dims:
+                clamped = config.clamp_to_multiple_of_8(raw)
+                self.record_test(cat, f"Multiple-of-8 Clamping ({raw} -> {expected})", clamped == expected, f"Result: {clamped}")
+
+            # Check Aspect Ratios
+            for ar_name, ar_data in config.ASPECT_RATIOS.items():
+                w_mod = ar_data["w"] % 8 == 0
+                h_mod = ar_data["h"] % 8 == 0
+                self.record_test(cat, f"Aspect Ratio Multiple-of-8: {ar_name}", w_mod and h_mod, f"Dimensions: {ar_data['w']}x{ar_data['h']}")
+        except Exception as e:
+            self.record_test(cat, "SOTA Models Exception", False, str(e))
+
+    # -------------------------------------------------------------------------
+    # 13. Session State Snapshot & Rehydration
+    # -------------------------------------------------------------------------
+    def test_session_state_lifecycle(self):
+        cat = "Zero-Loss Session State Preservation"
+        try:
+            import customtkinter as ctk
+            from ComfyUI_App import ComfyUIApp
+            import config
+
+            root = ctk.CTk()
+            root.withdraw()
+            app = ComfyUIApp(root)
+
+            # Set custom inputs
+            app.txt2img_prompt_entry.delete("1.0", "end")
+            app.txt2img_prompt_entry.insert("1.0", "cyberpunk neon street 8k test prompt")
+            app.vars["txt2img"]["seed"].set("99887766")
+            app.vars["txt2img"]["width"].set("1344")
+            app.vars["txt2img"]["height"].set("768")
+
+            # Snapshot
+            app._snapshot_session_state()
+            session_file = os.path.join(config.BASE_DIR, "session_restore.json")
+            has_snapshot = os.path.isfile(session_file)
+            self.record_test(cat, "Session Snapshot Persistence", has_snapshot, f"Snapshot written to {session_file}")
+
+            # Clear inputs
+            app.txt2img_prompt_entry.delete("1.0", "end")
+            app.vars["txt2img"]["seed"].set("0")
+
+            # Restore
+            app._restore_session_state()
+            restored_prompt = app.txt2img_prompt_entry.get("1.0", "end-1c")
+            restored_seed = app.vars["txt2img"]["seed"].get()
+
+            self.record_test(cat, "Session Prompt Rehydration", "cyberpunk neon street" in restored_prompt, f"Restored Prompt: {restored_prompt}")
+            self.record_test(cat, "Session Seed Rehydration", restored_seed == "99887766", f"Restored Seed: {restored_seed}")
+
+            root.destroy()
+        except Exception as e:
+            self.record_test(cat, "Session State Exception", False, str(e))
+
+    # -------------------------------------------------------------------------
     # Run All & Generate Reports
     # -------------------------------------------------------------------------
     def run_all(self):
@@ -444,6 +514,8 @@ class QATestRunner:
         self.test_desktop_gui()
         self.test_matrix_hud()
         self.test_workflow_builders()
+        self.test_sota_models_and_aspect_ratios()
+        self.test_session_state_lifecycle()
 
         total = len(self.results)
         passed = sum(1 for r in self.results if r["status"] == "PASS")
