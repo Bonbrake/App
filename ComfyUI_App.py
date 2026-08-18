@@ -153,6 +153,101 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import tkinter.font as tkfont
 
+def _apply_customtkinter_performance_patches():
+    """Applies high-performance non-destructive patches to CustomTkinter core engine.
+    
+    1. Coalesces CTkBaseClass._update_dimensions_event (throttled 40fps) to eliminate
+       thousands of redundant C-level Tk canvas redraws during window dragging/resizing.
+    2. Eliminates blocking self._canvas.update_idletasks() calls inside CTkOptionMenu._draw
+       and CTkScrollbar._draw which were stalling the Tk event loop on Windows.
+    """
+    try:
+        import customtkinter.windows.widgets.core_widget_classes.ctk_base_class as base
+        import customtkinter.windows.widgets.ctk_optionmenu as opt
+        import customtkinter.windows.widgets.ctk_scrollbar as sb
+
+        if getattr(base, "_comfyuix_perf_patched", False):
+            return
+        base._comfyuix_perf_patched = True
+
+        _orig_dim = base.CTkBaseClass._update_dimensions_event
+
+        def _fast_update_dimensions_event(self, event):
+            rw = self._reverse_widget_scaling(event.width)
+            rh = self._reverse_widget_scaling(event.height)
+            if round(self._current_width) != round(rw) or round(self._current_height) != round(rh):
+                self._current_width = rw
+                self._current_height = rh
+                now = time.time()
+                if now - getattr(self, "_last_draw_t", 0.0) > 0.025:
+                    self._last_draw_t = now
+                    self._draw(no_color_updates=True)
+                else:
+                    job = getattr(self, "_debounced_draw_job", None)
+                    if job is None:
+                        def _deferred_draw():
+                            self._debounced_draw_job = None
+                            self._last_draw_t = time.time()
+                            try:
+                                self._draw(no_color_updates=True)
+                            except Exception:
+                                pass
+                        try:
+                            self._debounced_draw_job = self.after(25, _deferred_draw)
+                        except Exception:
+                            pass
+
+        base.CTkBaseClass._update_dimensions_event = _fast_update_dimensions_event
+
+        def _fast_opt_draw(self, no_color_updates=False):
+            super(opt.CTkOptionMenu, self)._draw(no_color_updates)
+            left_section_width = self._current_width - self._current_height
+            requires_recoloring = self._draw_engine.draw_rounded_rect_with_border_vertical_split(
+                self._apply_widget_scaling(self._current_width),
+                self._apply_widget_scaling(self._current_height),
+                self._apply_widget_scaling(self._corner_radius),
+                0,
+                self._apply_widget_scaling(left_section_width))
+            requires_recoloring_2 = self._draw_engine.draw_dropdown_arrow(
+                self._apply_widget_scaling(self._current_width - (self._current_height / 2)),
+                self._apply_widget_scaling(self._current_height / 2),
+                self._apply_widget_scaling(self._current_height / 3))
+            if no_color_updates is False or requires_recoloring or requires_recoloring_2:
+                self._canvas.configure(bg=self._apply_appearance_mode(self._bg_color))
+                self._canvas.itemconfig('inner_parts_left', outline=self._apply_appearance_mode(self._fg_color), fill=self._apply_appearance_mode(self._fg_color))
+                self._canvas.itemconfig('inner_parts_right', outline=self._apply_appearance_mode(self._button_color), fill=self._apply_appearance_mode(self._button_color))
+                if self._state == 'disabled':
+                    self._text_label.configure(fg=self._apply_appearance_mode(self._text_color_disabled))
+                    self._canvas.itemconfig('dropdown_arrow', fill=self._apply_appearance_mode(self._text_color_disabled))
+                else:
+                    self._text_label.configure(fg=self._apply_appearance_mode(self._text_color))
+                    self._canvas.itemconfig('dropdown_arrow', fill=self._apply_appearance_mode(self._text_color))
+                self._text_label.configure(bg=self._apply_appearance_mode(self._fg_color))
+
+        opt.CTkOptionMenu._draw = _fast_opt_draw
+
+        def _fast_sb_draw(self, no_color_updates=False):
+            super(sb.CTkScrollbar, self)._draw(no_color_updates)
+            c_start, c_end = self._get_scrollbar_values_for_minimum_pixel_size()
+            requires_recoloring = self._draw_engine.draw_rounded_scrollbar(
+                self._apply_widget_scaling(self._current_width),
+                self._apply_widget_scaling(self._current_height),
+                self._apply_widget_scaling(self._corner_radius),
+                self._apply_widget_scaling(self._border_spacing),
+                c_start, c_end, self._orientation)
+            if no_color_updates is False or requires_recoloring:
+                hover_col = self._button_hover_color if self._hover_state else self._button_color
+                self._canvas.itemconfig('scrollbar_parts', fill=self._apply_appearance_mode(hover_col), outline=self._apply_appearance_mode(hover_col))
+                bg_col = self._bg_color if self._fg_color == 'transparent' else self._fg_color
+                self._canvas.configure(bg=self._apply_appearance_mode(bg_col))
+                self._canvas.itemconfig('border_parts', fill=self._apply_appearance_mode(bg_col), outline=self._apply_appearance_mode(bg_col))
+
+        sb.CTkScrollbar._draw = _fast_sb_draw
+    except Exception as e:
+        logging.debug("Performance patches: %s", e)
+
+_apply_customtkinter_performance_patches()
+
 import requests
 try:
     from config import (
