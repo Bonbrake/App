@@ -171,11 +171,11 @@ class MatrixRainCanvas(tk.Canvas):
     """High-Performance Authentic Matrix Digital Rain Canvas.
 
     Inspired by Project30Hub/Matrix-Digital-Rain, rendering cascading streams
-    of glowing green Katakana, Latin glyphs, and digits with fade trails.
+    of glowing green Katakana, Latin glyphs, and digits with authentic trailing fade.
     """
     CHARS = list("ｦｱｳｴｵｶｷｹｺｻｼｽｾｿﾀﾂﾃﾅﾆﾇﾈﾊﾋﾎﾏﾐﾑﾒﾓﾔﾕﾗﾘﾜ0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ+-*/<>$#@%&")
 
-    def __init__(self, master, font_size=14, fps=24, **kwargs):
+    def __init__(self, master, font_size=15, fps=30, **kwargs):
         kwargs.setdefault("bg", "#000000")
         kwargs.setdefault("highlightthickness", 0)
         super().__init__(master, **kwargs)
@@ -184,7 +184,7 @@ class MatrixRainCanvas(tk.Canvas):
         self.interval_ms = int(1000 / fps)
         self.running = False
         self._anim_job = None
-        self.drops = []
+        self.columns = []
         self._img_id = None
         self._photo = None
         self._pil_img = None
@@ -192,7 +192,11 @@ class MatrixRainCanvas(tk.Canvas):
         self._last_canvas_size = None
         try:
             from PIL import ImageFont
-            self._font = ImageFont.truetype("consola.ttf", self.font_size)
+            import os
+            if os.path.exists(r"C:\Windows\Fonts\msgothic.ttc"):
+                self._font = ImageFont.truetype(r"C:\Windows\Fonts\msgothic.ttc", self.font_size)
+            else:
+                self._font = ImageFont.truetype("consola.ttf", self.font_size)
         except Exception:
             try:
                 from PIL import ImageFont
@@ -211,7 +215,14 @@ class MatrixRainCanvas(tk.Canvas):
         h = max(50, self.winfo_height())
         cols = w // self.font_size + 1
         import random
-        self.drops = [random.randint(-h // self.font_size, 0) for _ in range(cols)]
+        self.columns = []
+        for i in range(cols):
+            self.columns.append({
+                "y": random.randint(0, h),
+                "speed": random.randint(3, 7),
+                "len": random.randint(8, 22),
+                "chars": [random.choice(self.CHARS) for _ in range(25)]
+            })
         try:
             from PIL import Image, ImageDraw, ImageTk
             self._pil_img = Image.new("RGB", (w, h), "#000000")
@@ -225,35 +236,50 @@ class MatrixRainCanvas(tk.Canvas):
     def _tick(self):
         if not self.running or self._draw is None:
             return
-        w = self.winfo_width()
-        h = self.winfo_height()
+        w = max(50, self.winfo_width())
+        h = max(50, self.winfo_height())
         if w < 10 or h < 10:
             return
 
         import random
-        from PIL import Image, ImageDraw
+        from PIL import ImageTk
 
         try:
-            # Semi-transparent dark overlay (fading trail effect from Project30Hub/Matrix-Digital-Rain)
-            fade = Image.new("RGBA", (w, h), (0, 0, 0, 28))
-            self._pil_img.paste(Image.blend(self._pil_img.convert("RGBA"), fade, 0.16).convert("RGB"))
-            self._draw = ImageDraw.Draw(self._pil_img)
+            # Clear frame to deep black
+            self._draw.rectangle([0, 0, w, h], fill="#000000")
 
-            for i in range(len(self.drops)):
-                char = random.choice(self.CHARS)
+            for i, col in enumerate(self.columns):
+                col["y"] += col["speed"]
+                if col["y"] - (col["len"] * self.font_size) > h:
+                    col["y"] = 0
+                    col["speed"] = random.randint(3, 7)
+                    col["len"] = random.randint(8, 22)
+
+                head_y = col["y"]
                 x = i * self.font_size
-                y = self.drops[i] * self.font_size
 
-                # Bright glowing cyber green leading drop
-                self._draw.text((x, y), char, font=self._font, fill=(0, 255, 102))
+                # Draw cascading trail backwards from head
+                for t in range(col["len"]):
+                    cy = head_y - (t * self.font_size)
+                    if 0 <= cy <= h:
+                        char = col["chars"][t % len(col["chars"])]
+                        if random.random() < 0.05:
+                            char = random.choice(self.CHARS)
+                            col["chars"][t % len(col["chars"])] = char
 
-                # Reset to top randomly when passing bottom
-                if y > h and random.random() > 0.975:
-                    self.drops[i] = 0
-                else:
-                    self.drops[i] += 1
+                        if t == 0:
+                            fill = (230, 255, 240)  # Bright neon white-green leading drop
+                        elif t < 3:
+                            fill = (0, 255, 102)    # Pure electric matrix green
+                        elif t < 8:
+                            fill = (0, 180, 70)     # Emerald mid-trail
+                        else:
+                            fill = (0, 75, 25)      # Deep matrix green fade
 
-            self._photo.paste(self._pil_img)
+                        self._draw.text((x, cy), char, font=self._font, fill=fill)
+
+            self._photo = ImageTk.PhotoImage(self._pil_img)
+            self.itemconfig(self._img_id, image=self._photo)
         except Exception:
             pass
 

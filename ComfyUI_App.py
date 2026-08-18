@@ -1743,6 +1743,16 @@ class ComfyUIApp:
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
 
+        # Real-time Matrix Digital Code Rain in the left sidebar
+        try:
+            from glass import MatrixRainCanvas
+            self.sidebar_rain = MatrixRainCanvas(sb, font_size=12, fps=30)
+            self.sidebar_rain.place(x=0, y=0, relwidth=1, relheight=1)
+            self.sidebar_rain.tk.call("lower", self.sidebar_rain._w)
+            self.sidebar_rain.start()
+        except Exception as e:
+            logging.debug("Sidebar matrix rain initialization: %s", e)
+
         # Logo header
         # Matrix Top Wordmark & Cyber Pill
         logo_row = ctk.CTkFrame(sb, fg_color="transparent")
@@ -1813,18 +1823,18 @@ class ComfyUIApp:
         scale.grid(row=r, column=0, padx=12, pady=(2, 8), sticky="ew")
         r += 1
 
-        # Matrix HUD Interactive Bridge Button with dynamic Green/Red status
+        # Matrix HUD Interactive Bridge Button with dynamic Green/Standby status (No Red)
         is_hud_up = self._is_matrix_hud_running() if hasattr(self, "_is_matrix_hud_running") else False
-        hud_txt = "🟢 Matrix HUD Online" if is_hud_up else "🔴 Matrix HUD Offline"
-        hud_fg = "#0D2818" if is_hud_up else "#280D0D"
-        hud_txc = "#00FF66" if is_hud_up else "#FF4444"
-        hud_bc = "#1C4A36" if is_hud_up else "#4A1C1C"
+        hud_txt = "🟢 Matrix HUD Online" if is_hud_up else "⚡ Matrix HUD Standby"
+        hud_fg = "#0D2818" if is_hud_up else BG_CARD
+        hud_txc = "#00FF66" if is_hud_up else TEXT_MUTED
+        hud_bc = "#1C4A36" if is_hud_up else BORDER_MUTED
         self.sidebar_status_label = ctk.CTkButton(sb, text=hud_txt, height=28, corner_radius=6,
-                                                 fg_color=hud_fg, border_width=1, border_color=hud_bc,
-                                                 hover_color=BRAND_HOVER,
-                                                 text_color=hud_txc,
-                                                 command=self._toggle_matrix_hud,
-                                                 font=self.FONT_SMALL_BOLD)
+                                                  fg_color=hud_fg, border_width=1, border_color=hud_bc,
+                                                  hover_color=BG_CARD_ALT,
+                                                  text_color=hud_txc,
+                                                  command=self._toggle_matrix_hud,
+                                                  font=self.FONT_SMALL_BOLD)
         self.sidebar_status_label.grid(row=r, column=0, padx=12, pady=(4, 4), sticky="ew")
         ToolTip(self.sidebar_status_label, ("Matrix AI HUD", "Click to launch / focus Matrix AI HUD companion app."))
         r += 1
@@ -8765,10 +8775,10 @@ class ComfyUIApp:
                     )
                 else:
                     self.sidebar_status_label.configure(
-                        text="🔴 Matrix HUD Offline",
-                        fg_color="#280D0D",
-                        text_color="#FF4444",
-                        border_color="#4A1C1C"
+                        text="⚡ Matrix HUD Standby",
+                        fg_color=BG_CARD,
+                        text_color=TEXT_MUTED,
+                        border_color=BORDER_MUTED
                     )
         except Exception:
             pass
