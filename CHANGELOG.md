@@ -1,0 +1,56 @@
+# Changelog
+
+All notable changes to the **ComfyUIX** project are documented here.
+This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [5.1.0] - 2026-08-18 (Matrix SOTA & Public Sanitization Release)
+
+### Added
+- **1-Click Generation Parameter & Workflow Re-Hydration**:
+  - `extract_generation_metadata(image_path)` in `gallery.py` parses embedded PNG `tEXt` chunks (`prompt`, `workflow`, `parameters`).
+  - Added 1-click **💧 Re-Hydrate** action button to `txt2img`, `img2img`, and `Gallery` toolbars to automatically restore Prompt, Negative, Steps, CFG, Seed, Dimensions, Sampler, Scheduler, and Model Checkpoints.
+- **1-Click Local LLM Diffusion Prompt Expander**:
+  - Added **⚡ Enhance** button in prompt toolbars to asynchronously query local AI endpoints (`Ollama` :11434, `LM Studio` :1234, local proxy :5119/:8000) or high-fidelity artistic heuristics without blocking Tkinter UI responsiveness.
+- **Dynamic Wildcards Permutation Engine**:
+  - Resolves `{option1|option2|option3}` dynamic permutation tags and attention weighting tokens prior to ComfyUI graph compilation.
+- **GGUF & Scaled Quantization Routing**:
+  - Automated graph loader detection and routing for `.gguf` checkpoints using `UnetLoaderGGUF` and `CLIPLoaderGGUF` to run heavy diffusion models on 8GB VRAM cards without OOM crashes.
+- **PyTorch CUDA Memory Defragmentation**:
+  - Injected `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` into backend process environment to eliminate memory fragmentation on Windows.
+- **Titanium & Frosted Cyber Emerald App Icon**:
+  - Precision 3D chamfered titanium emblem with glowing cyber mint-emerald glass (`#00FF66`/`#39FF8C`) matching native app dark palette. Output as `assets/app_icon.png`, `assets/app_icon.ico`, and `assets/comfyuix_app_icon_v5.ico`.
+
+### Changed & Sanitized
+- **Repository Debloated**: Deleted >135 MB of legacy binaries (`ComfyUIX_pyinstaller_backup.exe`, `unins000.exe`), scratch test files, and local logs.
+- **Sanitized Public Release Defaults**:
+  - Dynamic directory resolver `_resolve_comfyui_portable_dir()` in `config.py`.
+  - Configurable public AI ports and generic model fallbacks in `hermes_app.py`.
+  - Automatic path redaction (`[USER_HOME]`, `[APP_DIR]`) in `qa_suite.py`.
+  - Hardened `.gitignore` to prevent runtime configs, crash logs, and binaries from leaking into git.
+
+### Fixed & Verified
+- Recompiled Windows launcher `ComfyUIX.exe` with embedded cyber emerald icon and invalidation across all 16 Windows shell icon cache databases.
+- 110/110 automated tests passing across primary functional (`qa_suite.py`) and deep multi-vector stress (`multi_angle_debug.py`) harnesses.
+
+---
+
+## [5.0.0] - 2026-08-17 (Matrix UI & Multi-Studio Engine)
+
+### Added
+- **Matrix HUD Companion**: PySide6 telemetry companion app (`hermes_app.py`) with real-time VRAM sparklines, tok/s gauges, and generation event streaming.
+- **PBR Texture Studio**: Generates 5 game-ready physical material maps (Normal Map with Sobel unit tangent vectors, Roughness, Height, AO, and $3 \times 3$ Seamless Tiled wrap inspection).
+- **Interactive Inpainting Canvas**: CustomTkinter inpainting canvas with brush size slider, eraser mode, mask inversion, and direct workflow staging.
+- **Multimodal Video & Audio Engines**: Support for Wan 2.1, AnimateDiff, Bark TTS, and AudioLDM generation graphs.
+- **RFC 6455 Pure-Python WebSocket Client**: Real-time streaming of binary JPEG latent previews and step progress.
+- **Multi-Monitor Window Safety**: Dynamic screen bound clamping ensuring window coordinates are never restored off-screen.
+
+---
+
+## [4.0.0] - 2026-08-17 (Initial Clean Portable Release)
+
+### Added
+- Privacy & security audit: verified localhost-only egress, absence of telemetry, and `asInvoker` manifest.
+- Dynamic portable engine discovery resolving `COMFYUI_PORTABLE_DIR`.
+- Initial CustomTkinter dark-mode interface with GPU Doctor VRAM auto-tuning.

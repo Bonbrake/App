@@ -53,7 +53,7 @@ python ComfyUI_App.py
 python qa_suite.py
 
 # Run the Multi-Angle Deep Stress & Math Suite (57 Tests)
-python scratch/multi_angle_debug.py
+python multi_angle_debug.py
 ```
 
 ---
