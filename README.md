@@ -1,165 +1,69 @@
-<div align="center">
+# ⚡ ComfyUIX Matrix Edition v5.0
 
-# ⚡ ComfyUIX Studio Pro
-### Native Windows 11 Desktop AI Creation Suite & Matrix HUD Companion
+> **The Ultimate Standalone Local AI Generation Suite & Matrix HUD for Windows**
 
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20x64-0078D4?style=for-the-badge&logo=windows)](https://github.com)
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![UI](https://img.shields.io/badge/UI-CustomTkinter%20%2B%20PySide6-00FF66?style=for-the-badge)](https://github.com)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
-[![Status](https://img.shields.io/badge/Build-Passing%20(v2.4.0)-success?style=for-the-badge)](https://github.com)
-
-<p align="center">
-  <b>A blazing-fast, obsidian-glass native desktop application for ComfyUI workflows, local AI inference, and real-time GPU orchestration.</b>
-</p>
-
-[Key Features](#-key-features) • [Installation](#-installation) • [Architecture](#-architecture) • [Instant Live Updating](#-instant-live-updating) • [Matrix HUD Companion](#-matrix-hud-companion) • [Configuration](#-configuration)
+[![Release](https://img.shields.io/badge/release-v5.0.0--Matrix-00FF66.svg?style=for-the-badge&logo=matrix)](https://github.com/Bonbrake/ComfyUIX)
+[![QA Status](https://img.shields.io/badge/QA%20Tests-110%2F110%20PASSED-00FF66.svg?style=for-the-badge)](https://github.com/Bonbrake/ComfyUIX)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0080FF.svg?style=for-the-badge&logo=windows)](https://github.com/Bonbrake/ComfyUIX)
+[![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 ---
 
-</div>
+## 🌟 What is ComfyUIX?
 
-## 🌟 Overview
+**ComfyUIX** is a cutting-edge, zero-dependency desktop frontend for generative AI image, video, audio, and PBR 3D material generation. It combines the power of ComfyUI backend graph workflows with a streamlined, responsive **Matrix Dark Glass** user experience.
 
-**ComfyUIX Studio Pro** transforms your local AI workflow from a browser-bound interface into a high-performance, native Windows 11 desktop workstation. Engineered with a responsive **Obsidian Cyber Glass UI**, it orchestrates the ComfyUI backend in the background while providing an integrated **1-Click Model Vault**, live **VRAM telemetry**, full **slider delegation**, and **Matrix HUD companion auto-discovery**.
-
-Whether generating SDXL masterpieces, upscaling high-resolution artwork, creating animations, or monitoring local LLMs, ComfyUIX delivers a seamless, zero-friction experience.
+Accompanied by the **Matrix AI HUD** companion copilot, ComfyUIX delivers an all-in-one workstation for AI creators, game developers, 3D artists, and digital creators.
 
 ---
 
 ## ✨ Key Features
 
-### 🎨 Obsidian Glass UI & Ergonomics
-- **Zero-Void Geometry**: Docked 30px system status bar and zero vertical dead space.
-- **True Scroll Delegation**: Parameter sliders (Model Strength, CLIP Strength, CFG) never intercept scroll events when navigating down the page.
-- **Matrix Cyber Scrollbars**: Slim 6px auto-hiding scrollbars with glowing hover accents.
-- **0% Idle CPU Load**: Ultra-optimized acrylic backdrop rendering with debounced redraws.
-- **Universal Floating Scaling**: Multi-tier typography and widget scaling (`80%`, `90%`, `100%`, `110%`, `120%`, `125%`, `150%`).
+### 🎨 Creative Workflow Studios
+- **Text to Image**: High-precision prompt engineering, LoRA stacking, custom VAE selection, and High-Resolution Fix (Hires Fix) latent upscaling.
+- **Image to Image & Inpainting**: Built-in interactive **Inpainting Canvas** with brush size control, eraser mode, mask inversion, and direct workflow staging.
+- **PBR Texture Studio**: Generates 5 game-ready physical material maps (Normal Map with Sobel tangent vectors, Roughness, Height/Displacement, Ambient Occlusion, and $3 \times 3$ Seamless Tiled wrap inspection).
+- **AI Video Engine**: Support for Text-to-Video, Video-to-Video, and video refine workflows (Wan 2.1, AnimateDiff, HunyuanVideo).
+- **Audio Synthesis**: Multi-engine sound and speech synthesis (Bark TTS, AudioLDM, MusicGen).
 
-### 🧠 1-Click Model Vault & External Linker
-- **In-App Model Vault**: Embedded directly in Settings for 1-click downloading of curated SDXL, SD 1.5, and Upscalers with resume support.
-- **External Folder Linking**: Instantly link your existing Automatic1111, Forge, or ComfyUI checkpoint directories without re-downloading gigabytes of model weights.
-- **Auto-Scan on Launch**: Discovers local and linked safetensors on startup and after downloads.
-
-### ⚡ Instant Hot-Patch & Live Updating
-- **No 273MB Rebuilds Needed**: Dynamic script override layer automatically loads updated Python modules directly in memory.
-- **0.05s Live Sync**: Sync codebase changes across all application folders instantly using `quick_update.bat`.
-- **In-Memory UI Hot-Reload**: Rebuild the UI on-the-fly (`⚡ Hot Reload UI`) without interrupting active backend tasks.
-
-### 🤖 Matrix HUD Companion App
-- **Live Hardware Telemetry**: Real-time VRAM, GPU utilization, RAM, CPU, and token generation speed (tok/s) graphs.
-- **Multi-Server Auto-Discovery**: Automatically discovers and pings running local AI backends:
-  - `ComfyUI` (`http://127.0.0.1:8188`)
-  - `Hermes Proxy` (`http://127.0.0.1:5119`)
-  - `Ollama` (`http://127.0.0.1:11434`)
-  - `LM Studio` (`http://127.0.0.1:1234`)
-  - `vLLM / LocalAI` (`http://127.0.0.1:8000`)
-  - `Text-Gen WebUI` (`http://127.0.0.1:7860`)
-- **Matrix Rain Background**: Smooth 30ms time-based digital rain with click-to-pause.
+### ⚡ Performance & Hardware Engine
+- **Zero-Dependency RFC 6455 WebSocket Client**: Real-time live latent preview streaming (binary JPEG frames) and step execution progress.
+- **GPU Doctor & Smart VRAM Auto-Tuning**: Automatic detection of GPU VRAM, vendor optimization, and smart `--medvram`/`--lowvram` selection.
+- **Multi-Monitor Bounds Protection**: Negative coordinate window restoration guarantees the app never opens off-screen.
+- **Process Tree Reclamation**: Clean Windows Job Object integration ensures no orphan backend processes remain on exit.
+- **Integrated Model Vault**: Hugging Face and CivitAI live browser with pre-flight disk space checks and companion `.preview.png` caching.
 
 ---
 
-## 🏗️ Architecture
+## 🚀 Quickstart
 
-```mermaid
-graph TD
-    A[ComfyUIX Studio Pro] -->|WebSocket & REST| B[ComfyUI Backend Server :8188]
-    A -->|Embedded Vault| C[Model Downloader & External Linker]
-    A -->|IPC / HTTP| D[Matrix HUD Companion :5119]
-    D -->|Auto-Discovery| E[Local AI Ecosystem: Ollama / LM Studio / vLLM]
-    A -->|Dynamic Loader| F[Live Python Script Override Layer]
-```
-
----
-
-## 🚀 Installation & Quickstart
-
-### Option 1: 1-Click Windows Setup Installer (Recommended)
-<div align="center">
-
-[![Download Setup](https://img.shields.io/badge/Download-ComfyUIX__Setup.exe-00FF66?style=for-the-badge&logo=windows&logoColor=black)](https://github.com/Bonbrake/ComfyUIX/releases/download/v4.1.0/ComfyUIX_Setup.exe)
-[![Direct Executable](https://img.shields.io/badge/Download-ComfyUIX.exe%20(Standalone)-00E5FF?style=for-the-badge&logo=windows&logoColor=black)](https://github.com/Bonbrake/ComfyUIX/releases/download/v4.1.0/ComfyUIX.exe)
-
-</div>
-
-1. Download [**`ComfyUIX_Setup.exe`**](https://github.com/Bonbrake/ComfyUIX/releases/download/v4.1.0/ComfyUIX_Setup.exe) from [GitHub Releases](https://github.com/Bonbrake/ComfyUIX/releases/tag/v4.1.0).
-2. Run the installer. It will automatically install to `C:\Program Files\ComfyUIX`, create high-res desktop shortcuts, and configure the Matrix HUD companion bridge.
-3. Launch **ComfyUIX** from your Desktop or Start Menu.
-
-### Option 2: Run from Source
-Ensure you have **Python 3.11** installed on Windows.
-
+### Running from Source
 ```powershell
 # 1. Clone the repository
 git clone https://github.com/Bonbrake/ComfyUIX.git
 cd ComfyUIX
 
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. Launch Development Mode
-python main.py
+# 2. Launch the desktop application
+python ComfyUI_App.py
 ```
 
----
-
-## ⚡ Instant Live Updating Workflow
-
-For rapid development and customizing features:
-
+### Running Automated Test Suites
 ```powershell
-# 1. Edit any source file (ComfyUI_App.py, glass.py, hermes_app.py, etc.)
-# 2. Run instant sync (Takes < 0.1s!)
-python quick_update.py
+# Run the Primary Functional QA Suite (53 Tests)
+python qa_suite.py
 
-# 3. Relaunch or hit '⚡ Hot Reload UI' in Settings — Your changes are live instantly!
+# Run the Multi-Angle Deep Stress & Math Suite (57 Tests)
+python scratch/multi_angle_debug.py
 ```
 
 ---
 
-## ⚙️ Configuration & Custom Paths
+## 📋 Comprehensive Audit & Technical Spec
 
-Access **⚙ APPLICATION SETTINGS & CONFIGURATION** to customize:
-
-| Setting | Description |
-| :--- | :--- |
-| **Output Directory** | Target folder for all generated images (`📁 Browse` and `⚡ Open Folder`). |
-| **Input Directory** | Folder for source images used in Img2Img and Inpainting. |
-| **External Models Path** | Custom directory linking existing A1111/Forge model checkpoints. |
-| **Backend Python** | Path to custom Python executable for the embedded ComfyUI server. |
-| **ComfyUI Server URL** | Configurable host address (defaults to `http://127.0.0.1:8188`). |
-| **Factory Reset** | One-click button to restore clean default settings. |
-
----
-
-## ⌨️ Keyboard Shortcuts
-
-| Shortcut | Action |
-| :--- | :--- |
-| `Ctrl + E` | Trigger Generation / Queue Prompt |
-| `Ctrl + O` | Open Output Gallery Directory |
-| `Ctrl + R` | Restart ComfyUI Backend Server |
-| `Ctrl + Shift + R` | In-Memory UI Hot-Reload |
-| `F1` | Toggle Interactive Tooltips |
-| `F5` | Refresh Model Catalog & Thumbnails |
-
----
-
-## 🛠️ Tech Stack
-
-- **Core Frontend**: Python 3.11, [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter), Tkinter Canvas, Pillow (PIL)
-- **Companion HUD**: PySide6 (Qt 6), QPainter Vector Graphics, QThread Telemetry Workers
-- **Backend Communication**: WebSockets (`ws_client.py`), HTTP REST (`requests`, `urllib`)
-- **Packaging & Deployment**: PyInstaller 6.x (Bundled Windows Executable), Inno Setup 6 (Installer)
+For the full detailed engineering audit, architectural diagrams, mathematical formulations, and verification breakdown, refer to [AUDIT_PLAN_AND_SPECIFICATION.md](AUDIT_PLAN_AND_SPECIFICATION.md).
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-
----
-
-<div align="center">
-  <sub>Crafted with precision for local AI creators. Powered by ComfyUI.</sub>
-</div>
+Distributed under the MIT License. See `LICENSE` for more information.

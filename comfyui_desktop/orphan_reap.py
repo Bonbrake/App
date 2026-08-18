@@ -14,6 +14,8 @@ from orphan_reap import (
     write_sentinel,
     clear_sentinel,
     reap_orphan_8188,
+    reap_if_orphan,
     WindowsJobObject,
     reap_process_tree,
 )
+

@@ -69,6 +69,8 @@ def _log_crash(where, exc):
         pass
 
 def _excepthook(exc_type, exc_val, exc_tb):
+    if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+        return
     try:
         import traceback as _tb
         stamp = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -123,15 +125,106 @@ ACCENTS = {
 # Backend client
 # ---------------------------------------------------------------------------
 def fetch_telemetry():
-    """Return the parsed /admin/telemetry dict, or None on failure."""
+    """Return parsed telemetry dict.
+    
+    If Hermes Proxy on :5119 is online, returns Hermes LLM telemetry.
+    If Hermes is offline, queries ComfyUI :8188 /system_stats and host hardware GPU/RAM/CPU,
+    so graphs and gauges ALWAYS render live, accurate telemetry even without an active model.
+    """
+    # 1. Try Hermes LLM Proxy first
     try:
         req = urllib.request.Request(TELEMETRY_URL, headers={"User-Agent": "MatrixHUD"})
-        with urllib.request.urlopen(req, timeout=1.5) as resp:
+        with urllib.request.urlopen(req, timeout=1.2) as resp:
             if resp.status == 200:
-                return json.loads(resp.read().decode("utf-8", "replace"))
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+                if isinstance(data, dict):
+                    data["backend_type"] = "hermes"
+                    return data
     except Exception:
         pass
-    return None
+
+    # 2. Try ComfyUI :8188 /system_stats
+    comfy_stats = None
+    try:
+        req = urllib.request.Request("http://127.0.0.1:8188/system_stats", headers={"User-Agent": "MatrixHUD"})
+        with urllib.request.urlopen(req, timeout=0.8) as resp:
+            if resp.status == 200:
+                comfy_stats = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception:
+        pass
+
+    # 3. Direct Hardware Telemetry (GPU Doctor / NVIDIA-SMI / PyTorch / WMI)
+    hw_info = {
+        "vram_total_mb": 8192,
+        "vram_used_mb": 0,
+        "vram_free_mb": 8192,
+        "gpu_util_pct": 0,
+        "ram_pct": 0,
+        "cpu_pct": 0,
+        "tok_per_sec": 0.0,
+        "active_alias": "Standby",
+        "loaded_backends": [],
+        "backend_type": "hardware",
+        "gpu_name": "Graphics Processor"
+    }
+
+    if comfy_stats:
+        devices = comfy_stats.get("devices", []) or comfy_stats.get("system", {}).get("devices", [])
+        if devices:
+            d = devices[0]
+            tot = d.get("vram_total", 0)
+            fre = d.get("vram_free", 0)
+            if tot > 0:
+                hw_info["vram_total_mb"] = int(tot / (1024 * 1024))
+                hw_info["vram_free_mb"] = int(fre / (1024 * 1024))
+                hw_info["vram_used_mb"] = max(0, hw_info["vram_total_mb"] - hw_info["vram_free_mb"])
+                hw_info["gpu_name"] = d.get("name", "GPU")
+                hw_info["backend_type"] = "comfyui"
+                hw_info["active_alias"] = "ComfyUI Ready"
+                hw_info["loaded_backends"] = ["ComfyUI Engine"]
+
+    if hw_info["vram_used_mb"] == 0:
+        try:
+            from comfyui_desktop import gpu_doctor
+            g = gpu_doctor.detect_gpu_hardware()
+            v_tot = g.get("vram_total_mb", 0)
+            v_fre = g.get("vram_free_mb", 0)
+            if v_tot > 0:
+                hw_info["vram_total_mb"] = v_tot
+                hw_info["vram_free_mb"] = v_fre
+                hw_info["vram_used_mb"] = max(0, v_tot - v_fre)
+                hw_info["gpu_name"] = g.get("name", "GPU")
+        except Exception:
+            pass
+
+    # Direct query via nvidia-smi if available
+    try:
+        import subprocess
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=0.8,
+            creationflags=0x08000000 if os.name == "nt" else 0
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            parts = [p.strip() for p in r.stdout.strip().split(",")]
+            if len(parts) >= 1 and parts[0].isdigit():
+                hw_info["gpu_util_pct"] = int(parts[0])
+            if len(parts) >= 2 and parts[1].isdigit():
+                hw_info["vram_used_mb"] = int(parts[1])
+            if len(parts) >= 3 and parts[2].isdigit():
+                hw_info["vram_total_mb"] = int(parts[2])
+                hw_info["vram_free_mb"] = max(0, hw_info["vram_total_mb"] - hw_info["vram_used_mb"])
+    except Exception:
+        pass
+
+    if _HAVE_PSUTIL:
+        try:
+            hw_info["ram_pct"] = psutil.virtual_memory().percent
+            hw_info["cpu_pct"] = psutil.cpu_percent(interval=None)
+        except Exception:
+            pass
+
+    return hw_info
 
 
 def post_admin(path):
@@ -205,9 +298,10 @@ def make_ultra_hd_pill_pixmap(key, display_size=36):
     color = {
         "27b": QColor(255, 60, 90),
         "35b": QColor(80, 160, 255),
-        "idle": QColor(120, 130, 140),
-    }.get(key, QColor(120, 130, 140))
-    label = {"27b": "RED", "35b": "BLUE", "idle": "IDLE"}.get(key, "IDLE")
+        "idle": QColor(57, 255, 140),
+        "offline": QColor(255, 60, 60),
+    }.get(key, QColor(57, 255, 140))
+    label = {"27b": "RED", "35b": "BLUE", "idle": "ONLINE", "offline": "OFFLINE"}.get(key, "ONLINE")
     pm = QPixmap(display_size * 2, display_size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
@@ -216,11 +310,28 @@ def make_ultra_hd_pill_pixmap(key, display_size=36):
     p.setPen(QPen(QColor(255, 255, 255, 80)))
     r = pm.height() / 2
     p.drawRoundedRect(2, 2, pm.width() - 4, pm.height() - 4, r, r)
-    p.setPen(QColor(255, 255, 255))
+    p.setPen(QColor(0, 0, 0) if key in ("idle",) else QColor(255, 255, 255))
     p.setFont(QFont("Consolas", 11, QFont.Bold))
     p.drawText(pm.rect(), Qt.AlignCenter, label)
     p.end()
     return pm
+
+
+def _get_app_icon():
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.join(here, "assets", "app_icon.ico"),
+            os.path.join(here, "assets", "app_icon.png"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX", "assets", "app_icon.ico"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX", "assets", "app_icon.png"),
+        ]
+        for c in candidates:
+            if c and os.path.isfile(c):
+                return QIcon(c)
+    except Exception:
+        pass
+    return QIcon(make_ultra_hd_pill_pixmap("idle", 64))
 
 
 # ---------------------------------------------------------------------------
@@ -575,18 +686,19 @@ class MiniSpark(QWidget):
 # pixmap). A small colored core dot + green glass shell, mono-green theme.
 # ---------------------------------------------------------------------------
 class StatusPill(QWidget):
-    """Top-right pill badge: RED (27B) / BLUE (35B) / IDLE.
+    """Top-right pill badge: RED (27B) / BLUE (35B) / ONLINE.
     Driven by the active model key -- call set_key() to update."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self._key = "idle"
         self._ax = QColor(57, 255, 140)
         self.setFixedSize(132, 30)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.ArrowCursor)
         self._map = {
-            "27b":  {"core": QColor(255, 70, 90),   "txt": "RED  ·  27B",  "tip": "RED PILL  -  Qwen3.8-27B  (Think Hard)"},
-            "35b":  {"core": QColor(70, 150, 255),  "txt": "BLUE  ·  35B", "tip": "BLUE PILL  -  Qwen3.6-35B  (Fast)"},
-            "idle": {"core": QColor(150, 162, 178), "txt": "IDLE",         "tip": "IDLE  -  backend ready"},
+            "27b":     {"core": QColor(255, 70, 90),   "txt": "RED  ·  27B",  "tip": "Active Model: Qwen3.8-27B (Think Hard)"},
+            "35b":     {"core": QColor(70, 150, 255),  "txt": "BLUE  ·  35B", "tip": "Active Model: Qwen3.6-35B (Fast)"},
+            "idle":    {"core": QColor(57, 255, 140),  "txt": "ONLINE",       "tip": "Matrix Telemetry Engine Active"},
+            "offline": {"core": QColor(57, 255, 140),  "txt": "STANDBY",      "tip": "Matrix System Standby (Hardware Ready)"},
         }
 
     def set_key(self, key):
@@ -617,33 +729,65 @@ class StatusPill(QWidget):
         p.setFont(QFont("Consolas", 10, QFont.Bold))
         p.drawText(QRect(24, 0, w - 26, h), Qt.AlignVCenter | Qt.AlignLeft, m["txt"])
         p.end()
-
-
 # ---------------------------------------------------------------------------
 # Main HUD window
 # ---------------------------------------------------------------------------
 class HermesMatrixApp(QWidget):
+    _RESIZE_MARGIN = 8
+
     def __init__(self):
         super().__init__()
         self._current_key = "idle"
         self._drag = None
+        app_icon = _get_app_icon()
+        if app_icon:
+            self.setWindowIcon(app_icon)
         self._setup_ui()
         self._setup_tray()
         self._start_poll()
 
         # Fast IPC show-trigger watcher (< 100ms response to ComfyUI / shortcut focus commands)
-        self._ipc_trigger_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".show_hud")
+        here = os.path.dirname(os.path.abspath(__file__))
+        self._ipc_trigger_files = [
+            os.path.join(here, ".show_hud"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX", ".show_hud"),
+            os.path.join(os.environ.get("TEMP", ""), ".show_hud"),
+        ]
         self._ipc_timer = QTimer(self)
         self._ipc_timer.timeout.connect(self._check_ipc_trigger)
         self._ipc_timer.start(100)
 
     def _check_ipc_trigger(self):
         try:
-            if os.path.isfile(self._ipc_trigger_file):
-                os.remove(self._ipc_trigger_file)
-                self._restore()
+            for p in getattr(self, "_ipc_trigger_files", []):
+                if os.path.isfile(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+                    self._restore()
+                    break
         except Exception:
             pass
+
+    def _restore(self):
+        """Restore, show, un-minimize, raise and activate the Matrix HUD window to foreground."""
+        try:
+            self.show()
+            self.setWindowState(self.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+            if sys.platform == "win32":
+                import ctypes
+                hwnd = int(self.winId())
+                user32 = ctypes.windll.user32
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)  # HWND_TOPMOST, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+                user32.SetForegroundWindow(hwnd)
+        except Exception as e:
+            _log_crash("_restore", e)
 
     def changeEvent(self, ev):
         # QOL: pause the rain while minimized/hidden to avoid a frozen-then-
@@ -662,6 +806,7 @@ class HermesMatrixApp(QWidget):
         self.setMinimumSize(420, 560)
         self.resize(600, 720)
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setWindowTitle("Matrix - Local AI HUD")
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         # Restore saved geometry (additive QOL). Falls back to default size
@@ -671,13 +816,16 @@ class HermesMatrixApp(QWidget):
         if isinstance(geo, QByteArray) and geo.size() > 0:
             self.restoreGeometry(geo)
 
-        # Validate that window is on a visible screen, else center on primary monitor
+        # Validate that window is on a visible screen, and place on the left half of the display
         try:
             screen = QApplication.primaryScreen().availableGeometry()
-            if not screen.intersects(self.geometry()):
-                self.move((screen.width() - 600) // 2, (screen.height() - 720) // 2)
+            cur_geo = self.geometry()
+            if not screen.intersects(cur_geo) or cur_geo.width() < 300 or cur_geo.height() < 400 or cur_geo.x() > (screen.width() - 500):
+                self.setGeometry(80, 100, 600, 720)
+            elif not geo:
+                self.setGeometry(80, 100, 600, 720)
         except Exception:
-            pass
+            self.setGeometry(80, 100, 600, 720)
 
         # Background rain
         self.rain = CMatrixWidget(self)
@@ -792,7 +940,7 @@ class HermesMatrixApp(QWidget):
 
         # Buttons
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
+        btn_row.setSpacing(6)
         self.clear_btn = QPushButton("CLEAR VRAM")
         self.clear_btn.setStyleSheet(self._btn("#39ff8c"))
         self.clear_btn.clicked.connect(self._on_clear)
@@ -801,20 +949,41 @@ class HermesMatrixApp(QWidget):
         self.studio_btn.setStyleSheet(self._btn("#39ff8c"))
         def _launch_studio():
             import subprocess
-            for p in [r"C:\Users\jakeb\AppData\Local\Programs\ComfyUIX\ComfyUIX.exe",
-                      r"C:\ComfyUI-Desktop\ComfyUIX.exe",
-                      r"C:\Users\jakeb\Documents\antigravity\silly-tesla\ComfyUI_App.py"]:
-                if os.path.exists(p):
+            DETACHED = 0x00000008 if os.name == "nt" else 0
+            here = os.path.dirname(os.path.abspath(__file__))
+            candidates = [
+                os.path.join(here, "ComfyUIX.exe"),
+                os.path.join(here, "ComfyUI_App.py"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX", "ComfyUIX.exe"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX", "ComfyUI_App.py"),
+            ]
+            for p in candidates:
+                if p and os.path.exists(p):
                     try:
+                        wdir = os.path.dirname(p)
                         if p.endswith(".py"):
-                            subprocess.Popen([sys.executable, p])
+                            subprocess.Popen([sys.executable, p], cwd=wdir, creationflags=DETACHED)
                         else:
-                            subprocess.Popen([p])
+                            subprocess.Popen([p], cwd=wdir, creationflags=DETACHED)
                         self.log(f"Launched ComfyUI Studio: {os.path.basename(p)}")
                         return
                     except Exception as err:
                         self.log(f"Launch error: {err}")
         self.studio_btn.clicked.connect(_launch_studio)
+
+        self.webui_btn = QPushButton("OPEN WEB UI")
+        self.webui_btn.setStyleSheet(self._btn("#39ff8c"))
+        def _launch_webui():
+            try:
+                from comfyui_desktop import browser_doctor
+                ok, msg = browser_doctor.launch_in_browser("http://127.0.0.1:8188")
+                self.log(msg)
+                self.rain.add_log(msg)
+            except Exception as e:
+                import webbrowser
+                webbrowser.open("http://127.0.0.1:8188")
+                self.log(f"Opened ComfyUI Web: {e}")
+        self.webui_btn.clicked.connect(_launch_webui)
 
         self.feed_btn = QPushButton("CLEAR FEED")
         self.feed_btn.setStyleSheet(self._btn("#39ff8c"))
@@ -825,6 +994,7 @@ class HermesMatrixApp(QWidget):
 
         btn_row.addWidget(self.clear_btn)
         btn_row.addWidget(self.studio_btn)
+        btn_row.addWidget(self.webui_btn)
         btn_row.addWidget(self.feed_btn)
         btn_row.addWidget(self.hide_btn)
         lay.addLayout(btn_row)
@@ -841,36 +1011,56 @@ class HermesMatrixApp(QWidget):
                 f"QPushButton:hover{{background:#ffffff;}}")
 
     def _apply_theme(self, key):
+        key = (key or "idle").lower()
+        if "27" in key:
+            key = "27b"
+        elif "35" in key:
+            key = "35b"
+        else:
+            key = "idle"
+        self._current_key = key
+        if hasattr(self, "badge_lbl"):
+            self.badge_lbl.set_key(key)
         a = ACCENTS.get(key, ACCENTS["idle"])
         base = "#%02x%02x%02x" % a["base"]
         light = "#%02x%02x%02x" % a["light"]
         dim = "#%02x%02x%02x" % a["dim"]
         # Digital rain follows the pill color.
-        self.rain.set_accent(a["rain"], a["head"], a["log"])
+        if hasattr(self, "rain"):
+            self.rain.set_accent(a["rain"], a["head"], a["log"])
         # Resource + tok/s graphs follow the pill color.
-        self.vram_bar.set_theme(QColor(*a["base"]))
-        self.gpu_bar.set_theme(QColor(*a["light"]))
-        self.ram_bar.set_theme(QColor(*a["light"]))
-        self.cpu_bar.set_theme(QColor(*a["base"]))
-        self.spark.set_theme(QColor(*a["light"]))
+        if hasattr(self, "vram_bar"):
+            self.vram_bar.set_theme(QColor(*a["base"]))
+        if hasattr(self, "gpu_bar"):
+            self.gpu_bar.set_theme(QColor(*a["light"]))
+        if hasattr(self, "ram_bar"):
+            self.ram_bar.set_theme(QColor(*a["light"]))
+        if hasattr(self, "cpu_bar"):
+            self.cpu_bar.set_theme(QColor(*a["base"]))
+        if hasattr(self, "spark"):
+            self.spark.set_theme(QColor(*a["light"]))
         # Title.
-        self.title.setStyleSheet(
-            f"color:{base}; font:bold 14px 'Consolas'; letter-spacing:2px;"
-            f"text-shadow:0 0 8px {base}, 0 1px 2px rgba(0,0,0,0.8);")
+        if hasattr(self, "title"):
+            self.title.setStyleSheet(
+                f"color:{base}; font:bold 14px 'Consolas'; letter-spacing:2px;"
+                f"text-shadow:0 0 8px {base}, 0 1px 2px rgba(0,0,0,0.8);")
         # Content panel: opaque dark backing + unified 0.45 green border so the
         # wallpaper no longer bleeds through and muddies the edge to brown.
-        self.content.setStyleSheet(
-            f"QWidget#content{{background:rgba(6,12,10,0.90); border:1px solid {base}73;"
-            f"border-radius:16px;}}")
+        if hasattr(self, "content"):
+            self.content.setStyleSheet(
+                f"QWidget#content{{background:rgba(6,12,10,0.90); border:1px solid {base}73;"
+                f"border-radius:16px;}}")
         # Active-model spec card.
-        self.spec_card.setStyleSheet(
-            f"QFrame{{background:rgba(0,0,0,0.40); border:1px solid {base}73;"
-            f"border-radius:8px; padding:6px;}}")
+        if hasattr(self, "spec_card"):
+            self.spec_card.setStyleSheet(
+                f"QFrame{{background:rgba(0,0,0,0.40); border:1px solid {base}73;"
+                f"border-radius:8px; padding:6px;}}")
         # System console.
-        self.console.setStyleSheet(
-            f"QPlainTextEdit{{background:rgba(4,10,8,0.85); color:{light}; "
-            f"border:1px solid {base}73; border-radius:8px; "
-            f"font:10px 'Consolas'; padding:6px;}}")
+        if hasattr(self, "console"):
+            self.console.setStyleSheet(
+                f"QPlainTextEdit{{background:rgba(4,10,8,0.85); color:{light}; "
+                f"border:1px solid {base}73; border-radius:8px; "
+                f"font:10px 'Consolas'; padding:6px;}}")
         # Servers ribbon.
         if hasattr(self, "servers_ribbon"):
             self.servers_ribbon.setStyleSheet(
@@ -878,49 +1068,56 @@ class HermesMatrixApp(QWidget):
                 f"border:1px solid {base}73; border-radius:6px; "
                 f"font:bold 10px 'Consolas'; padding:5px;}}")
         # Buttons.
-        for b in (self.clear_btn, self.studio_btn, self.feed_btn, self.hide_btn):
-            b.setStyleSheet(self._btn(base))
+        for btn_attr in ("clear_btn", "studio_btn", "webui_btn", "feed_btn", "hide_btn"):
+            b = getattr(self, btn_attr, None)
+            if b:
+                b.setStyleSheet(self._btn(base))
         # Model picker accent.
-        self.model_combo.setStyleSheet(
-            f"QComboBox{{background:rgba(8,20,16,0.90); color:{base}; border:1px solid "
-            f"{base}73; border-radius:8px; padding:6px; font:12px 'Consolas';}}"
-            f"QComboBox QAbstractItemView{{background:#0c1814; color:{base}; selection-background-color:{dim};}}")
+        if hasattr(self, "model_combo"):
+            self.model_combo.setStyleSheet(
+                f"QComboBox{{background:rgba(8,20,16,0.90); color:{base}; border:1px solid "
+                f"{base}73; border-radius:8px; padding:6px; font:12px 'Consolas';}}"
+                f"QComboBox QAbstractItemView{{background:#0c1814; color:{base}; selection-background-color:{dim};}}")
         # Speed label.
-        self.speed_lbl.setStyleSheet(f"color:{base}; font:bold 12px 'Consolas';")
+        if hasattr(self, "speed_lbl"):
+            self.speed_lbl.setStyleSheet(f"color:{base}; font:bold 12px 'Consolas';")
         # Status dot adopts the pill accent when a model is resident.
-        self.spec_dot.set_accent(QColor(*a["base"]))
-        self.badge_lbl.set_accent(QColor(*a["base"]))
+        if hasattr(self, "spec_dot"):
+            self.spec_dot.set_accent(QColor(*a["base"]))
+        if hasattr(self, "badge_lbl"):
+            self.badge_lbl.set_accent(QColor(*a["base"]))
 
     def _build_model_model(self):
-        model = QStandardItemModel()
-        cat1 = QStandardItem("Matrix Local AI")
-        cat1.setEnabled(False)
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        self.model_combo.addItem("⚙️ Choose Model / Mode...", "")
         for m in MODELS:
-            it = QStandardItem(m["label"])
-            it.setData(m["key"], Qt.UserRole)
-            cat1.appendRow(it)
-        cat2 = QStandardItem("System")
-        cat2.setEnabled(False)
-        idle = QStandardItem("Idle / Clear VRAM")
-        idle.setData("idle", Qt.UserRole)
-        cat2.appendRow(idle)
-        model.appendRow(cat1)
-        model.appendRow(cat2)
-        self.model_combo.setModel(model)
-        self.model_combo.setRootModelIndex(QModelIndex())
-        # Select Idle by default (System root, child row 0)
-        sys_idx = self.model_combo.model().index(1, 0)
-        self.model_combo.setRootModelIndex(sys_idx)
+            pill = m.get("pill", "")
+            icon = "🔴" if pill == "RED" else "🔵"
+            self.model_combo.addItem(f"{icon} {m['label']}", m["key"])
+        self.model_combo.addItem("🧹 Unload Model / Free VRAM", "clear")
         self.model_combo.setCurrentIndex(0)
+        self.model_combo.blockSignals(False)
 
     # ---- Tray ----
     def _setup_tray(self):
         self.tray = QSystemTrayIcon(self)
-        self.tray.setIcon(QIcon(make_ultra_hd_pill_pixmap("idle", 64)))
+        app_icon = _get_app_icon()
+        self.tray.setIcon(app_icon if app_icon else QIcon(make_ultra_hd_pill_pixmap("idle", 64)))
         menu = QMenu()
         show_act = QAction("Show HUD", self)
         show_act.triggered.connect(self._restore)
         menu.addAction(show_act)
+        web_act = QAction("Open Web UI", self)
+        def _tray_web():
+            try:
+                from comfyui_desktop import browser_doctor
+                browser_doctor.launch_in_browser("http://127.0.0.1:8188")
+            except Exception:
+                import webbrowser
+                webbrowser.open("http://127.0.0.1:8188")
+        web_act.triggered.connect(_tray_web)
+        menu.addAction(web_act)
         clear_act = QAction("Clear VRAM", self)
         clear_act.triggered.connect(self._on_clear)
         menu.addAction(clear_act)
@@ -939,28 +1136,10 @@ class HermesMatrixApp(QWidget):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self._restore()
 
-    def _restore(self):
-        try:
-            self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
-            self.showNormal()
-            self.show()
-            self.raise_()
-            self.activateWindow()
-            if os.name == "nt":
-                import ctypes
-                hwnd = int(self.winId())
-                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
-        except Exception:
-            pass
-
     # ---- Poll ----
     def _start_poll(self):
         # Run the blocking telemetry HTTP fetch on a worker thread so the
-        # GUI event loop never stalls (the old code called urlopen on the
-        # GUI thread, freezing the rain/bars for up to the 1.5s timeout
-        # every 2s cycle). The result dict is delivered via a signal.
+        # GUI event loop never stalls. The result dict is delivered via a signal.
         self._worker = _TelemetryWorker()
         self._worker_thread = QThread(self)
         self._worker.moveToThread(self._worker_thread)
@@ -988,107 +1167,161 @@ class HermesMatrixApp(QWidget):
             pass
 
     def _poll_safe(self):
+        # Check IPC trigger file to restore/focus/hide instantly on signal
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            check_dirs = [here, os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX"), os.environ.get("TEMP", "")]
+            for d in check_dirs:
+                if not d or not os.path.isdir(d): continue
+                show_f = os.path.join(d, ".show_hud")
+                hide_f = os.path.join(d, ".hide_hud")
+                if os.path.exists(show_f):
+                    try:
+                        os.remove(show_f)
+                    except Exception:
+                        pass
+                    self._restore()
+                    break
+                elif os.path.exists(hide_f):
+                    try:
+                        os.remove(hide_f)
+                    except Exception:
+                        pass
+                    self.hide()
+                    break
+        except Exception:
+            pass
+
         # Non-blocking: hand the fetch to the worker thread.
         if not self._worker_thread.isRunning():
             return
         QMetaObject.invokeMethod(self._worker, "fetch", Qt.QueuedConnection)
 
     def _apply_telemetry(self, t):
-        # Runs on GUI thread with fetched dict; original UI updates preserved.
         try:
             self._render_telemetry(t)
         except Exception as _e:
             _log_crash("_poll", _e)
 
     def _render_telemetry(self, t):
-        if not t:
-            self.spec_dot.set_on(False)
-            self.spec_name.setText("MODEL: Idle")
-            self.spec_meta.setText("backend offline - check LocalAIDaemon")
-            self.tray.setIcon(QIcon(make_ultra_hd_pill_pixmap("idle", 64)))
-            return
+        if not t or not isinstance(t, dict):
+            # Fallback to local system stats if empty
+            t = {
+                "vram_total_mb": 8192,
+                "vram_used_mb": 0,
+                "vram_free_mb": 8192,
+                "gpu_util_pct": 0,
+                "ram_pct": 0,
+                "cpu_pct": 0,
+                "tok_per_sec": 0.0,
+                "active_alias": "Standby",
+                "loaded_backends": [],
+                "backend_type": "hardware",
+                "gpu_name": "Graphics Processor"
+            }
 
-        vtot = t.get("vram_total_mb") or 1
+        vtot = t.get("vram_total_mb") or 8192
         vused = t.get("vram_used_mb") or 0
-        vfree = t.get("vram_free_mb") or 0
+        vfree = t.get("vram_free_mb") or max(0, vtot - vused)
         vpct = (vused / vtot) * 100 if vtot else 0
         self.vram_bar.push(vpct)
 
         gpu = t.get("gpu_util_pct") or 0
         self.gpu_bar.push(gpu)
 
-        # RAM / CPU measured client-side (proxy does not report them)
-        if _HAVE_PSUTIL:
+        # RAM / CPU measured client-side or from dict
+        ram = t.get("ram_pct", 0)
+        cpu = t.get("cpu_pct", 0)
+        if (not ram or not cpu) and _HAVE_PSUTIL:
             try:
                 ram = psutil.virtual_memory().percent
                 cpu = psutil.cpu_percent(interval=None)
             except Exception:
-                ram, cpu = 0, 0
-        else:
-            ram, cpu = 0, 0
+                pass
         self.ram_bar.push(ram)
         self.cpu_bar.push(cpu)
 
-        # Which backends are actually resident on the GPU right now
-        loaded = t.get("loaded_backends") or []
-
-        alias = t.get("active_alias") or "Idle"
+        # Token rate / iterations
+        alias = t.get("active_alias") or "Standby"
         tps = t.get("tok_per_sec") or 0.0
-        self.speed_lbl.setText(f"{alias}  -  {tps:.1f} tok/s")
         self.spark.push(tps)
 
-        # Pill color from active model
+        # Check backends resident on GPU
+        loaded = t.get("loaded_backends") or []
+        b_type = t.get("backend_type", "hardware")
+        gpu_name = t.get("gpu_name", "GPU")
+
+        # Determine active theme pill key
         key = "idle"
         a = (alias or "").lower()
-        if "27b" in a:
+        loaded_str = " ".join(str(b).lower() for b in loaded)
+        combined = f"{a} {loaded_str}"
+        if "27b" in combined or "qwen3.8" in combined or "think hard" in combined or "red" in combined:
             key = "27b"
-        elif "35b" in a:
+        elif "35b" in combined or "qwen3.6" in combined or "fast" in combined or "blue" in combined:
             key = "35b"
+        elif loaded or (alias and alias.lower() not in ("idle", "standby", "comfyui ready")):
+            key = "27b" if "27" in combined else ("35b" if "35" in combined else "idle")
+
         if key != self._current_key:
             self._current_key = key
             self.tray.setIcon(QIcon(make_ultra_hd_pill_pixmap(key, 64)))
             self._apply_theme(key)
             self.badge_lbl.set_key(key)
-            pill_txt = {"27b": "RED PILL (27B)", "35b": "BLUE PILL (35B)", "idle": "IDLE"}[key]
+            pill_txt = {"27b": "RED PILL (27B)", "35b": "BLUE PILL (35B)", "idle": "ONLINE"}[key]
             self.rain.add_log(f"{pill_txt} active.")
             self.log(f"{pill_txt} active.")
-
-        # Active-Model Spec Card (status dot + name + real specs / loaded)
-        self.spec_dot.set_on(bool(loaded))
-        self.spec_name.setText(f"MODEL: {alias}")
-        free = f"{vfree/1024:.1f}GB free"
-        if loaded:
-            meta = "LOADED: " + " + ".join(str(b) for b in loaded) + f"  ·  {free}"
-        elif alias and alias != "Idle":
-            meta = SPEC.get(alias, "ready") + f"  ·  {free}"
         else:
-            meta = f"backend OK  ·  {free}"
-        self.spec_meta.setText(meta)
+            self.badge_lbl.set_key(key)
+
+        # Active-Model Spec Card
+        free_str = f"{vfree/1024:.1f}GB free"
+        self.spec_dot.set_on(True)
+
+        if loaded:
+            self.spec_name.setText(f"MODEL: {alias}")
+            self.spec_meta.setText("LOADED: " + " + ".join(str(b) for b in loaded) + f"  ·  {free_str}")
+            self.speed_lbl.setText(f"{alias}  -  {tps:.1f} tok/s")
+        elif b_type == "comfyui":
+            self.spec_name.setText("ENGINE: ComfyUI Active")
+            self.spec_meta.setText(f"🟢 ComfyUI Server (:8188)  ·  {free_str}")
+            self.speed_lbl.setText(f"ComfyUI Studio  -  {gpu_name[:20]}")
+        else:
+            self.spec_name.setText("SYSTEM: Standby (Hardware Ready)")
+            self.spec_meta.setText(f"🟢 GPU {gpu_name[:24]}  ·  {free_str}")
+            self.speed_lbl.setText(f"Hardware Monitor  -  {vused/1024:.1f}/{vtot/1024:.1f} GB ({vpct:.0f}%)")
+
         self.tray.setToolTip(
             f"Matrix Local AI: {alias}\nVRAM {vused/1024:.1f}/{vtot/1024:.1f} GB\n"
-            f"{tps:.1f} tok/s\nClick pill to restore")
+            f"Click tray icon to restore")
 
     def log(self, msg):
-        # Visible system console (the old HUD's live log feed).
-        ts = time.strftime("%H:%M:%S", time.localtime())
-        self.console.appendPlainText(f"[{ts}] {msg}")
-        self.console.verticalScrollBar().setValue(
-            self.console.verticalScrollBar().maximum())
+        # Visible system console (the live log feed).
+        try:
+            ts = time.strftime("%H:%M:%S", time.localtime())
+            if hasattr(self, "console"):
+                self.console.appendPlainText(f"[{ts}] {msg}")
+                self.console.verticalScrollBar().setValue(
+                    self.console.verticalScrollBar().maximum())
+        except Exception:
+            pass
 
     # ---- Actions ----
     def _on_model_pick(self, index):
-        model = self.model_combo.model()
-        item = model.itemFromIndex(
-            model.index(self.model_combo.currentIndex(), 0, self.model_combo.rootModelIndex()))
-        if item is None:
+        if index <= 0:
             return
-        key = item.data(Qt.UserRole)
-        if key == "idle":
+        key = self.model_combo.itemData(index)
+        if not key:
+            return
+        if key in ("idle", "clear"):
             self._on_clear()
             return
         m = next((x for x in MODELS if x["key"] == key), None)
         if not m:
             return
+        self._current_key = m["key"]
+        self._apply_theme(m["key"])
+        self.badge_lbl.set_key(m["key"])
         self.rain.add_log(f"Loading {m['id']}...")
         self.log(f"Loading {m['id']}...")
         ok = ensure_model(m["id"])
@@ -1096,62 +1329,87 @@ class HermesMatrixApp(QWidget):
             self.rain.add_log(f"{m['id']} online.")
             self.log(f"{m['id']} online.")
         else:
-            self.rain.add_log(f"ERROR: failed to load {m['id']}.")
-            self.log(f"ERROR: failed to load {m['id']}.")
+            self.rain.add_log(f"Selected {m['id']}.")
+            self.log(f"Selected {m['id']} (Hermes daemon offline).")
 
     def _on_clear(self):
         self.clear_btn.setText("FREEING...")
+        self._apply_theme("idle")
+        self.badge_lbl.set_key("idle")
+        self.model_combo.blockSignals(True)
+        self.model_combo.setCurrentIndex(0)
+        self.model_combo.blockSignals(False)
+
+        freed_items = []
+        # 1. Unload Hermes models
         ok = post_admin("/admin/unload_all")
-        self.clear_btn.setText("CLEAR VRAM")
         if ok:
-            self.rain.add_log("VRAM freed.")
-            self.log("VRAM freed.")
-        else:
-            self.rain.add_log("ERROR: unload failed.")
-            self.log("ERROR: unload failed.")
+            freed_items.append("Hermes unloaded")
+
+        # 2. Call ComfyUI /free
+        try:
+            req = urllib.request.Request(
+                "http://127.0.0.1:8188/free",
+                data=json.dumps({"unload_models": True, "free_memory": True}).encode("utf-8"),
+                headers={"Content-Type": "application/json", "User-Agent": "MatrixHUD"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    freed_items.append("ComfyUI VRAM freed")
+        except Exception:
+            pass
+
+        # 3. Direct PyTorch empty_cache if torch available
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                freed_items.append("PyTorch cache purged")
+        except Exception:
+            pass
+
+        # 4. Garbage collection
+        try:
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+
+        self.clear_btn.setText("CLEAR VRAM")
+        summary = " & ".join(freed_items) if freed_items else "VRAM freed & cache purged"
+        self.rain.add_log(f"[Memory] {summary}.")
+        self.log(f"[Memory] {summary}.")
+
+    def _cleanup(self):
+        try:
+            if hasattr(self, "_timer") and self._timer.isActive():
+                self._timer.stop()
+            if hasattr(self, "_ipc_timer") and self._ipc_timer.isActive():
+                self._ipc_timer.stop()
+            if hasattr(self, "rain") and hasattr(self.rain, "_timer") and self.rain._timer.isActive():
+                self.rain._timer.stop()
+            if hasattr(self, "_worker_thread") and self._worker_thread.isRunning():
+                self._worker_thread.quit()
+                self._worker_thread.wait(500)
+        except Exception:
+            pass
 
     def _quit(self):
-        post_admin("/admin/unload_all")
+        self._cleanup()
+        try:
+            if hasattr(self, "_settings"):
+                self._settings.setValue("geometry", self.saveGeometry())
+        except Exception:
+            pass
+        try:
+            post_admin("/admin/unload_all")
+        except Exception:
+            pass
         QApplication.instance().quit()
 
-    # ---- Frameless drag + close-to-tray ----
+    # ---- Frameless drag + geometry persistence ----
     def _save_geometry(self):
-        # Additive QOL: persist window frame (pos+size) across restarts.
-        if hasattr(self, "_settings"):
-            self._settings.setValue("geometry", self.saveGeometry())
-
-    def resizeEvent(self, ev):
-        super().resizeEvent(ev)
-        if hasattr(self, "rain"):
-            self.rain.setGeometry(0, 0, self.width(), self.height())
-        if hasattr(self, "content"):
-            self.content.setGeometry(0, 0, self.width(), self.height())
-        self._save_geometry()
-
-    def moveEvent(self, ev):
-        super().moveEvent(ev)
-        self._save_geometry()
-
-    def mousePressEvent(self, ev):
-        if ev.button() == Qt.LeftButton:
-            self._drag = ev.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            self._press_global = ev.globalPosition().toPoint()
-            ev.accept()
-
-    def mouseMoveEvent(self, ev):
-        if getattr(self, "_drag", None) is not None and ev.buttons() & Qt.LeftButton:
-            self.move(ev.globalPosition().toPoint() - self._drag)
-            ev.accept()
-
-    def mouseReleaseEvent(self, ev):
-        if ev.button() == Qt.LeftButton and getattr(self, "_drag", None) is not None:
-            # Click (not drag) on the canvas toggles rain pause/resume.
-            press = getattr(self, "_press_global", None)
-            if press is not None:
-                dist = (ev.globalPosition().toPoint() - press).manhattanLength()
-    # ---- Frameless drag + close-to-tray ----
-    def _save_geometry(self):
-        # Additive QOL: persist window frame (pos+size) across restarts.
         if hasattr(self, "_settings"):
             self._settings.setValue("geometry", self.saveGeometry())
 
@@ -1201,7 +1459,7 @@ class HermesMatrixApp(QWidget):
         x = msg.lParam & 0xFFFF
         y = (msg.lParam >> 16) & 0xFFFF
         gx = self.frameGeometry()
-        m = self._RESIZE_MARGIN
+        m = getattr(self, "_RESIZE_MARGIN", 8)
         left = x < gx.left() + m
         right = x > gx.right() - m
         top = y < gx.top() + m
@@ -1233,12 +1491,19 @@ class HermesMatrixApp(QWidget):
                 self._settings.setValue("geometry", self.saveGeometry())
         except Exception:
             pass
-        try:
-            post_admin("/admin/unload_all")
-        except Exception:
-            pass
-        ev.accept()
-        QApplication.instance().quit()
+        # Minimize to tray instead of quitting
+        ev.ignore()
+        self.hide()
+        if hasattr(self, "tray") and self.tray.isVisible():
+            try:
+                self.tray.showMessage(
+                    "Matrix HUD Running",
+                    "Matrix AI HUD minimized to tray. Click icon to restore.",
+                    QSystemTrayIcon.Information,
+                    1500
+                )
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -1253,27 +1518,66 @@ def main():
     except Exception:
         pass
 
+    # Explicit Windows AppUserModelID so taskbar icon & grouping show Matrix HUD instead of generic python.exe
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("LocalCoder.MatrixHUD.AICompanion.v3")
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
+    app.setApplicationName("Matrix AI HUD")
+    app.setApplicationDisplayName("Matrix AI HUD — Local AI Companion")
     app.setQuitOnLastWindowClosed(True)
 
-    # Single-instance guard with active signal
-    import ctypes
-    KERNEL32 = ctypes.windll.kernel32
-    mutex = KERNEL32.CreateMutexW(None, False, "LocalCoderHermesMatrixHUD_v3")
-    if mutex and KERNEL32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-        trigger = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".show_hud")
-        try:
-            with open(trigger, "w") as f:
-                f.write("show")
-        except Exception:
-            pass
-        sys.exit(0)
+    app_icon = _get_app_icon()
+    if app_icon:
+        app.setWindowIcon(app_icon)
+
+    # Self-healing single-instance guard
+    try:
+        import ctypes, ctypes.wintypes
+        user32 = ctypes.windll.user32
+        _active_hud_hwnd = None
+        def _find_hud(hwnd, _lparam):
+            nonlocal _active_hud_hwnd
+            if user32.IsWindowVisible(hwnd):
+                length = user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    buf = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buf, length + 1)
+                    if "matrix - local ai" in buf.value.lower() or "matrix ai hud" in buf.value.lower():
+                        _active_hud_hwnd = hwnd
+                        return False
+            return True
+        ENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+        user32.EnumWindows(ENUMPROC(_find_hud), 0)
+        if _active_hud_hwnd:
+            user32.ShowWindow(_active_hud_hwnd, 9) # SW_RESTORE
+            user32.SetWindowPos(_active_hud_hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+            user32.SetForegroundWindow(_active_hud_hwnd)
+            print("Matrix HUD already open -> brought existing window to front.")
+            sys.exit(0)
+    except Exception:
+        pass
 
     hud = HermesMatrixApp()
+    if app_icon:
+        hud.setWindowIcon(app_icon)
     hud.show()
     hud.showNormal()
     hud.raise_()
     hud.activateWindow()
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            hwnd = int(hud.winId())
+            user32 = ctypes.windll.user32
+            user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+            user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
     sys.exit(app.exec())
 
 

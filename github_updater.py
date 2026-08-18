@@ -115,12 +115,10 @@ def apply_script_update(repo="Bonbrake/ComfyUIX", branch="main", progress_callba
     headers = {"User-Agent": "ComfyUIX-Updater/2.4.0"}
     
     src_dir = os.path.dirname(os.path.abspath(__file__))
-    dest_dirs = [
-        src_dir,
-        r"C:\Users\jakeb\AppData\Local\Programs\ComfyUIX",
-        r"C:\ComfyUI-Desktop",
-        r"C:\LocalCoder",
-    ]
+    dest_dirs = [src_dir]
+    local_app_comfy = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX")
+    if os.path.isdir(local_app_comfy) and local_app_comfy not in dest_dirs:
+        dest_dirs.append(local_app_comfy)
     
     updated_files = []
     total = len(TRACKED_SCRIPTS)

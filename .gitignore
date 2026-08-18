@@ -4,65 +4,58 @@ __pycache__/
 *$py.class
 *.pyc
 
-# Distribution / Packaging / Executables
+# Distribution / packaging
 build/
 dist/
-_last_good/
-*.exe
-*.msi
-*.pkg
-*.spec.bak
+*.egg-info/
+.eggs/
 
-# PyInstaller temporary files
-_MEI*
-
-# Temporary & Log files
-*.tmp
-*.log
-nul
-_qa_results.json
-diagnostics/
-audit_temp/
-backups/
-scratch/
-scratch_old_app.py
-ComfyUI_App_backup.py
-ComfyUI_App_full.py
-old_comfyui_copy/
-qa_screens*/
-matrix_qa_screens/
-test_capture.png
-matrix_test_bg.png
-
-# Environments & Workspace
-.env
-.venv
-env/
-venv/
-.agent_workspace/
-.pytest_cache/
-.vscode/
-.idea/
-
-# Large Model Weights (Excluded from Git)
-models/
-models_archive/
-ComfyUI_windows_portable/
+# Models & Large Weights (Keep folders, ignore large safetensors/ckpt/pth)
+models/checkpoints/*.safetensors
+models/checkpoints/*.ckpt
+models/loras/*.safetensors
+models/upscale_models/*.pth
+models/vae/*.safetensors
+models/controlnet/*.safetensors
+models/clip/*.safetensors
+models/unet/*.safetensors
 *.safetensors
 *.ckpt
-*.gguf
-*.pth
+*.pt
 *.bin
-*.onnx
+*.download
+*.tmp
 
-# User Data & Output
+# ComfyUI and local environments
+ComfyUI/
+venv/
+env/
+.env
+
+# Output media & cache
 output/
 input/
+temp/
 logs/
+*.log
+ComfyUI_crash.txt
+*.tga
+*_albedo.tga
+*_normal.png
+*_roughness.png
+*_height.png
+*_ao.png
+*_3x3_tiled.png
+test_pbr_temp*
+test_config_temp*
 
-# Allow asset images
-!assets/
-!assets/*.png
-!assets/*.ico
-!assets/*.jpg
-!assets/*.svg
+# Windows binaries and installers
+*.exe
+*.dat
+diagnostics/
+
+# Windows system files
+Thumbs.db
+Desktop.ini
+.show_hud
+.hide_hud

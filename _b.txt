@@ -1,5 +1,0 @@
-C:\Users\jakeb\AppData\Local\Programs\Python\Python311\Lib\site-packages\customtkinter\windows\widgets\core_widget_classes\ctk_base_class.py:179: UserWarning: CTkLabel Warning: Given image is not CTkImage but <class 'PIL.ImageTk.PhotoImage'>. Image can not be scaled on HighDPI displays, use CTkImage instead.
-
-  warnings.warn(f"{type(self).__name__} Warning: Given image is not CTkImage but {type(image)}. Image can not be scaled on HighDPI displays, use CTkImage instead.\n")
-stage=full       built=['sidebar', 'main', 'txt2img', 'img2img', 'upscale', 'preview', 'sidebar_buttons', 'status_bar']
-  calling set_widget_scaling(1.1)...

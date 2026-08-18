@@ -125,6 +125,88 @@ def is_texture_file(filepath: str) -> bool:
             return True
     return False
 
+def generate_pbr_maps(image_path: str) -> dict:
+    """Generate complete PBR Texture Map Suite (Normal, Roughness, Height, AO, TGA).
+    
+    Returns a dictionary of generated map file paths.
+    """
+    try:
+        import numpy as np
+        from scipy.ndimage import sobel
+    except ImportError:
+        np = None
+
+    if not image_path or not os.path.exists(image_path):
+        return {}
+    
+    base_name, _ = os.path.splitext(os.path.abspath(image_path))
+    results = {}
+
+    try:
+        with Image.open(image_path).convert("RGB") as im:
+            w, h = im.size
+            pot_w = 2 ** round(math.log2(w)) if w > 0 else 512
+            pot_h = 2 ** round(math.log2(h)) if h > 0 else 512
+            pot_im = im.resize((pot_w, pot_h), Image.Resampling.LANCZOS)
+            
+            # 1. Albedo TGA
+            tga_path = base_name + "_albedo.tga"
+            pot_im.save(tga_path, format="TGA")
+            results["albedo"] = tga_path
+
+            gray = pot_im.convert("L")
+            gray_arr = np.array(gray, dtype=np.float32) / 255.0 if np is not None else None
+
+            # 2. Tangent-space Normal Map (Sobel filter)
+            if gray_arr is not None:
+                dx = sobel(gray_arr, axis=1) * 3.0
+                dy = sobel(gray_arr, axis=0) * 3.0
+                dz = np.ones_like(gray_arr)
+                norm = np.sqrt(dx**2 + dy**2 + dz**2)
+                norm = np.maximum(norm, 1e-6)
+                nx = (dx / norm * 0.5 + 0.5) * 255.0
+                ny = (-dy / norm * 0.5 + 0.5) * 255.0  # OpenGL / DirectX Y-flip
+                nz = (dz / norm * 0.5 + 0.5) * 255.0
+                normal_arr = np.stack([nx, ny, nz], axis=-1).astype(np.uint8)
+                normal_im = Image.fromarray(normal_arr, "RGB")
+                norm_path = base_name + "_normal.png"
+                normal_im.save(norm_path)
+                results["normal"] = norm_path
+
+                # 3. Roughness Map (Inverted Specular with contrast curve)
+                rough_arr = (1.0 - gray_arr) ** 0.8 * 255.0
+                rough_im = Image.fromarray(rough_arr.astype(np.uint8), "L")
+                rough_path = base_name + "_roughness.png"
+                rough_im.save(rough_path)
+                results["roughness"] = rough_path
+
+                # 4. Height / Displacement Map
+                height_path = base_name + "_height.png"
+                gray.save(height_path)
+                results["height"] = height_path
+
+                # 5. Ambient Occlusion (AO) approximation
+                ao_arr = np.clip(gray_arr * 1.2, 0.0, 1.0) * 255.0
+                ao_im = Image.fromarray(ao_arr.astype(np.uint8), "L")
+                ao_path = base_name + "_ao.png"
+                ao_im.save(ao_path)
+                results["ao"] = ao_path
+
+            # 6. 3x3 Seamless Tiled Preview
+            tiled_w, tiled_h = pot_w * 3, pot_h * 3
+            tiled_im = Image.new("RGB", (tiled_w, tiled_h))
+            for tx in range(3):
+                for ty in range(3):
+                    tiled_im.paste(pot_im, (tx * pot_w, ty * pot_h))
+            tiled_path = base_name + "_3x3_tiled.png"
+            tiled_im.save(tiled_path)
+            results["tiled_3x3"] = tiled_path
+
+    except Exception as e:
+        logger.error("PBR Map Generation failed: %s", e)
+
+    return results
+
 def scan_all_media_files(directories, recursive=True, max_depth=2, filter_type="all"):
     """Scan given directories for media files, excluding input and cache folders.
     filter_type: 'all', 'images', 'videos', 'textures'
@@ -150,6 +232,7 @@ def scan_all_media_files(directories, recursive=True, max_depth=2, filter_type="
                     if f.lower().endswith(valid_exts) and not f.lower().startswith("input"):
                         fp = os.path.join(base, f)
                         if os.path.isfile(fp) and fp not in seen:
+                            ext = os.path.splitext(fp)[1].lower()
                             if filter_type == "textures" and not is_texture_file(fp):
                                 continue
                             if filter_type == "images" and is_texture_file(fp) and ext == ".tga":
@@ -184,3 +267,4 @@ def scan_all_media_files(directories, recursive=True, max_depth=2, filter_type="
                         valid_files.append(fp)
 
     return valid_files
+

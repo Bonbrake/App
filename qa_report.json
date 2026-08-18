@@ -1,0 +1,444 @@
+{
+  "timestamp": "2026-08-18T10:59:51.852492",
+  "duration_seconds": 15.415,
+  "total_tests": 53,
+  "passed_tests": 53,
+  "failed_tests": 0,
+  "pass_rate_percent": 100.0,
+  "results": [
+    {
+      "category": "Platform & Identity",
+      "name": "Windows OS Platform",
+      "status": "PASS",
+      "details": "Platform: win32",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.438135"
+    },
+    {
+      "category": "Platform & Identity",
+      "name": "AppUserModelID Configuration",
+      "status": "PASS",
+      "details": "Successfully registered explicit AppUserModelID",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.446548"
+    },
+    {
+      "category": "Platform & Identity",
+      "name": "Application Root Integrity",
+      "status": "PASS",
+      "details": "Root: C:\\Users\\jakeb\\AppData\\Local\\Programs\\ComfyUIX",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.446548"
+    },
+    {
+      "category": "Platform & Identity",
+      "name": "Application Assets & Icon",
+      "status": "PASS",
+      "details": "Icon path: C:\\Users\\jakeb\\AppData\\Local\\Programs\\ComfyUIX\\assets\\app_icon.ico",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.446548"
+    },
+    {
+      "category": "GPU Doctor & Auto-Tuning",
+      "name": "GPU Vendor Detection",
+      "status": "PASS",
+      "details": "Vendor: nvidia",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.513058"
+    },
+    {
+      "category": "GPU Doctor & Auto-Tuning",
+      "name": "VRAM Detection",
+      "status": "PASS",
+      "details": "Detected VRAM: 8.0 GB (8192 MB)",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.513058"
+    },
+    {
+      "category": "GPU Doctor & Auto-Tuning",
+      "name": "Recommended Mode Calculation",
+      "status": "PASS",
+      "details": "Recommended mode: medvram (8GB-10GB)",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.513058"
+    },
+    {
+      "category": "GPU Doctor & Auto-Tuning",
+      "name": "Recommended Launch Arguments",
+      "status": "PASS",
+      "details": "Args: ['--windows-standalone-build', '--fast', '--disable-auto-launch', '--medvram']",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.513058"
+    },
+    {
+      "category": "GPU Doctor & Auto-Tuning",
+      "name": "GPU Summary Formatting",
+      "status": "PASS",
+      "details": "Summary: NVIDIA GeForce RTX 2070 SUPER | VRAM: 8.0 GB | Vendor: NVIDIA | Mode: medvram (8GB-10GB)",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.513058"
+    },
+    {
+      "category": "Cross-Browser Doctor",
+      "name": "Installed Browser Discovery",
+      "status": "PASS",
+      "details": "Found 2 browsers: Brave Browser, Google Chrome",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.545804"
+    },
+    {
+      "category": "Cross-Browser Doctor",
+      "name": "Brave Browser Diagnostic Guidance",
+      "status": "PASS",
+      "details": "Brave detected: True | Guidance tips: 5",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.545804"
+    },
+    {
+      "category": "Cross-Browser Doctor",
+      "name": "Fast Loopback Port Scanner",
+      "status": "PASS",
+      "details": "Scanned 6 local AI service ports",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.929670"
+    },
+    {
+      "category": "Cross-Browser Doctor",
+      "name": "Browser Launch Command Formatter",
+      "status": "PASS",
+      "details": "Command: ['C:\\\\Program Files\\\\BraveSoftware\\\\Brave-Browser\\\\Application\\\\brave.exe', 'http://127.0.0.1:8188']",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.930517"
+    },
+    {
+      "category": "Desktop Shortcut Integrity",
+      "name": "Desktop Shortcut Verification",
+      "status": "PASS",
+      "details": "Desktop shortcut is verified and healthy.",
+      "metadata": {
+        "shortcut_path": "C:\\Users\\jakeb\\Desktop\\ComfyUIX.lnk",
+        "target_path": "C:\\Users\\jakeb\\AppData\\Local\\Programs\\ComfyUIX\\ComfyUIX.exe",
+        "arguments": "",
+        "working_dir": "C:\\Users\\jakeb\\AppData\\Local\\Programs\\ComfyUIX",
+        "icon_path": "C:\\Users\\jakeb\\AppData\\Local\\Programs\\ComfyUIX\\assets\\app_icon.ico",
+        "exists_before": true,
+        "repaired": false,
+        "success": true,
+        "message": "Desktop shortcut is verified and healthy."
+      },
+      "timestamp": "2026-08-18T10:59:36.999320"
+    },
+    {
+      "category": "Desktop Shortcut Integrity",
+      "name": "Shortcut Target Binary Resolution",
+      "status": "PASS",
+      "details": "Target: C:\\Users\\jakeb\\AppData\\Local\\Programs\\ComfyUIX\\ComfyUIX.exe",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:36.999320"
+    },
+    {
+      "category": "Process Lifecycle & OS Job Objects",
+      "name": "Windows Job Object Initialization",
+      "status": "PASS",
+      "details": "Job handle: 936 | KillOnClose: True",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:37.000018"
+    },
+    {
+      "category": "Process Lifecycle & OS Job Objects",
+      "name": "Pre-Flight Orphan Port Reclamation",
+      "status": "PASS",
+      "details": "Port 8188 orphan reaped: None",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:37.025599"
+    },
+    {
+      "category": "Process Lifecycle & OS Job Objects",
+      "name": "BackendManager Hardware & Job Binding",
+      "status": "PASS",
+      "details": "BackendManager active GPU: medvram (8GB-10GB)",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:37.169089"
+    },
+    {
+      "category": "Geometry & Display Bounds Safety",
+      "name": "Valid In-Bounds Geometry",
+      "status": "PASS",
+      "details": "Result: 1280x1120+100+100",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:38.857616"
+    },
+    {
+      "category": "Geometry & Display Bounds Safety",
+      "name": "Negative Off-Screen Geometry Recovery",
+      "status": "PASS",
+      "details": "Recovered to: 1280x1120+640+160",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:38.857616"
+    },
+    {
+      "category": "Geometry & Display Bounds Safety",
+      "name": "Far Off-Screen Geometry Recovery",
+      "status": "PASS",
+      "details": "Recovered to: 1280x1120+640+160",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:38.857616"
+    },
+    {
+      "category": "Model Hub & Download Resilience",
+      "name": "Curated Presets Catalog",
+      "status": "PASS",
+      "details": "Found 7 curated models",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:38.988811"
+    },
+    {
+      "category": "Model Hub & Download Resilience",
+      "name": "Atomic Temp File Naming",
+      "status": "PASS",
+      "details": "Temp path: C:\\Users\\jakeb\\AppData\\Local\\Programs\\ComfyUIX\\models\\checkpoints\\epicrealismXL_v5.safetensors.download",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:38.988811"
+    },
+    {
+      "category": "Model Hub & Download Resilience",
+      "name": "Installed Checkpoint Indexer",
+      "status": "PASS",
+      "details": "Indexed 0 installed checkpoint files",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:38.989186"
+    },
+    {
+      "category": "WebSocket & REST API Resilience",
+      "name": "ComfyClient URL Resolution",
+      "status": "PASS",
+      "details": "Target URL: http://127.0.0.1:8188",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:38.990215"
+    },
+    {
+      "category": "WebSocket & REST API Resilience",
+      "name": "ComfyClient Safe Interrupt Call",
+      "status": "PASS",
+      "details": "post_interrupt completed without throwing uncaught exceptions",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:41.016723"
+    },
+    {
+      "category": "WebSocket & REST API Resilience",
+      "name": "ComfyClient Safe VRAM Purge",
+      "status": "PASS",
+      "details": "purge_vram executed (returned: False)",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:43.077622"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "GUI Root Initialization",
+      "status": "PASS",
+      "details": "CTk root and ComfyUIApp initialized cleanly",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:44.145800"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Main View Switch: GENERATE",
+      "status": "PASS",
+      "details": "Switched to generate view",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:44.145800"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Main View Switch: GALLERY",
+      "status": "PASS",
+      "details": "Switched to gallery view",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:44.837013"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Main View Switch: SETTINGS",
+      "status": "PASS",
+      "details": "Switched to settings view",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.539816"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Main View Switch: DEBUG",
+      "status": "PASS",
+      "details": "Switched to debug view",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.724839"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Workflow Tab: Text to Image",
+      "status": "PASS",
+      "details": "Switched to Text to Image",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.727225"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Workflow Tab: Image to Image",
+      "status": "PASS",
+      "details": "Switched to Image to Image",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.732002"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Workflow Tab: Upscale",
+      "status": "PASS",
+      "details": "Switched to Upscale",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.746257"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Workflow Tab: Text to Video",
+      "status": "PASS",
+      "details": "Switched to Text to Video",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.755106"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Workflow Tab: Video to Video",
+      "status": "PASS",
+      "details": "Switched to Video to Video",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.762003"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Workflow Tab: Video Refine & Upscale",
+      "status": "PASS",
+      "details": "Switched to Video Refine & Upscale",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.764722"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Workflow Tab: Audio",
+      "status": "PASS",
+      "details": "Switched to Audio",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.768439"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "QoL Toggle: qol_prompt_history",
+      "status": "PASS",
+      "details": "Current state: 1",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.768439"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "QoL Toggle: qol_auto_restart",
+      "status": "PASS",
+      "details": "Current state: 1",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.768439"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "QoL Toggle: qol_restore_session",
+      "status": "PASS",
+      "details": "Current state: 1",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.768439"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "QoL Toggle: qol_vram_readout",
+      "status": "PASS",
+      "details": "Current state: 1",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.768439"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "QoL Toggle: qol_copy_path",
+      "status": "PASS",
+      "details": "Current state: 1",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:45.768439"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "App In-Memory Diagnostic Self-Test",
+      "status": "PASS",
+      "details": "Ran _debug_diagnose() with 100% nominal output",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:48.285468"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Real-Time Telemetry Engine",
+      "status": "PASS",
+      "details": "Live Telemetry: 1261MB / 8192MB (15.4%) | GPU: True",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:50.361892"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Cancel Generation Lifecycle Protocol",
+      "status": "PASS",
+      "details": "Atomic cancellation lock release and UI state reset verified",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:50.378534"
+    },
+    {
+      "category": "Desktop GUI & Navigation",
+      "name": "Input Media Pickers & Gallery Workflows",
+      "status": "PASS",
+      "details": "Verified _pick_input, _pick_upscale, and gallery send-to workflows",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:50.378534"
+    },
+    {
+      "category": "Matrix HUD Companion",
+      "name": "HUD AST Parsing",
+      "status": "PASS",
+      "details": "Parsed 38 AST nodes in hermes_app.py",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:50.657290"
+    },
+    {
+      "category": "Matrix HUD Companion",
+      "name": "HUD Python 3.11 Runtime Support",
+      "status": "PASS",
+      "details": "PySide6 companion installed in Python 3.11 system path",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:50.658295"
+    },
+    {
+      "category": "AI Workflow Graph Builders",
+      "name": "Graph Builder: txt2img",
+      "status": "PASS",
+      "details": "Graph contains 7 nodes",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:51.722862"
+    },
+    {
+      "category": "AI Workflow Graph Builders",
+      "name": "Graph Builder: img2img",
+      "status": "PASS",
+      "details": "Graph contains 7 nodes",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:51.723284"
+    },
+    {
+      "category": "AI Workflow Graph Builders",
+      "name": "Graph Builder: upscale",
+      "status": "PASS",
+      "details": "Graph contains 7 nodes",
+      "metadata": {},
+      "timestamp": "2026-08-18T10:59:51.723284"
+    }
+  ]
+}

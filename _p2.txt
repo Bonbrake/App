@@ -1,2 +1,0 @@
-stub=no_tooltips built
-  returned

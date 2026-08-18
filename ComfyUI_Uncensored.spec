@@ -39,17 +39,22 @@ def _discover_hook_dirs_inproc():
 hook_dirs = _discover_hook_dirs_inproc()
 
 from PyInstaller.utils.hooks import collect_all
+hermes_path = os.path.join(REPO_ROOT, "hermes_app.py")
 spec_datas = ([(icon_path, 'static/assets')] if os.path.exists(icon_path) else []) + [(build_info_path, '.')]
+if os.path.exists(hermes_path):
+    spec_datas.append((hermes_path, '.'))
+
 spec_binaries = []
 spec_hiddenimports = ['PIL', 'PIL._tkinter_finder', 'PIL.ImageTk', 'win32mica', 'requests', 'ctypes', 'ctypes.wintypes',
                        'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.font',
                        'customtkinter', 'imageio', 'imageio.v2', 'imageio_ffmpeg', 'numpy', 'importlib.metadata',
-                       'glass', 'orphan_reap', 'gallery', 'config', 'backend', 'model_downloader',
+                       'glass', 'orphan_reap', 'gallery', 'config', 'backend', 'model_downloader', 'hermes_app',
+                       'PySide6', 'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets', 'psutil', 'win32com', 'win32com.client',
                        'comfyui_desktop', 'comfyui_desktop.glass', 'comfyui_desktop.orphan_reap',
                        'comfyui_desktop.config', 'comfyui_desktop.diagnostics', 'comfyui_desktop.gallery',
                        'comfyui_desktop.backend_manager', 'comfyui_desktop.widgets', 'comfyui_desktop.ws_client']
 
-for _pkg in ('customtkinter', 'imageio', 'imageio_ffmpeg', 'av', 'PIL', 'comfyui_desktop', 'requests', 'numpy', 'glass', 'onnxruntime', 'ctranslate2', 'scipy', 'sklearn', 'pydantic', 'rich', 'fastapi', 'uvicorn', 'cryptography', 'lxml', 'sounddevice', 'tokenizers', 'yaml'):
+for _pkg in ('customtkinter', 'imageio', 'imageio_ffmpeg', 'av', 'PIL', 'comfyui_desktop', 'requests', 'numpy', 'glass', 'onnxruntime', 'ctranslate2', 'scipy', 'sklearn', 'pydantic', 'rich', 'fastapi', 'uvicorn', 'cryptography', 'lxml', 'sounddevice', 'tokenizers', 'yaml', 'PySide6', 'psutil'):
     try:
         _d, _b, _h = collect_all(_pkg)
         spec_datas.extend(_d)
@@ -70,7 +75,7 @@ except Exception:
 tcl_bases = [
     os.path.join(sys.base_prefix, 'tcl'),
     os.path.join(sys.prefix, 'tcl'),
-    r'C:\Users\jakeb\AppData\Local\Programs\Python\Python311\tcl',
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Python", f"Python{sys.version_info.major}{sys.version_info.minor}", "tcl"),
     r'C:\Python311\tcl',
     r'C:\Python312\tcl',
 ]
@@ -148,5 +153,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=[icon_path] if os.path.exists(icon_path) else [],
+    icon=icon_path if os.path.exists(icon_path) else None,
 )

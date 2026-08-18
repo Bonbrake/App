@@ -130,20 +130,13 @@ def clear_sentinel():
     except Exception:
         pass
 
-def reap_orphan_8188(my_pid=None, dry_run=False):
+def reap_orphan_8188(port=8188, my_pid=None, dry_run=False):
     """Terminate an :8188 ComfyUI server that is an ORPHAN from a PREVIOUS EXE
     run. Returns the PID reaped, or None.
-
-    Logic:
-    - If no server on :8188 -> nothing to do.
-    - If server PID == my_pid -> our own backend, leave it.
-    - If server PID == sentinel PID and sentinel PID alive -> current EXE owns it, leave it.
-    - If server PID != sentinel PID and sentinel PID is DEAD -> orphan from prior EXE run, REAP.
-    - If no sentinel file -> manual launch, NEVER reap.
     """
-    pid = pid_on_port(COMFY_PORT)
+    target_port = port or COMFY_PORT
+    pid = pid_on_port(target_port)
     if pid is None:
-        print(f"[orphan_reap] no process on :{COMFY_PORT}")
         return None
     if my_pid is not None and pid == my_pid:
         print(f"[orphan_reap] :{COMFY_PORT} held by our own PID {pid} - leave it")
@@ -319,7 +312,12 @@ def reap_process_tree(pid, timeout=3.0):
         except Exception:
             pass
 
+# Alias for compatibility with modern QA suites and backend managers
+reap_if_orphan = reap_orphan_8188
+
 
 if __name__ == "__main__":
     dr = "--dry-run" in sys.argv
     reap_orphan_8188(dry_run=dr)
+
+
