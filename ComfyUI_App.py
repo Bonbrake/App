@@ -723,22 +723,49 @@ AUDIO_PRESETS = {
         "model": "MusicGen (BGM / Ambient Track)", "format": "OGG Vorbis (Game Engine)", "duration": "10s"},
 }
 
-VIDEO_PRESETS = {
-    "🎬 Cinematic Cutscene (Slow Zoom In)": {
-        "prompt": "epic cinematic movie cutscene, atmospheric fog, volumetric raytracing, high fidelity lighting, cinematic 24fps camera move",
-        "camera_motion": "Slow Zoom In", "resolution": "360p (640x360)", "duration": "5s"},
-    "🔄 3D Character Showcase (Orbit Camera)": {
-        "prompt": "detailed character showcase, full 360 orbit camera, smooth character motion, cinematic lighting render",
-        "camera_motion": "Orbit", "resolution": "360p (640x360)", "duration": "5s"},
-    "🌄 Panoramic Landscape Flythrough (Pan Right)": {
-        "prompt": "sweeping panoramic landscape shot, volumetric clouds, wind in vegetation, cinematic sunset lighting",
+TXT2VID_PRESETS = {
+    "🎬 35mm Cinematic Film (Pan Right / 5s)": {
+        "prompt": "epic cinematic movie scene, 35mm anamorphic lens, Panavision flare, atmospheric volumetric fog, high fidelity lighting, realistic 24fps motion",
         "camera_motion": "Pan Right", "resolution": "360p (640x360)", "duration": "5s"},
-    "🎥 Immersive First-Person Camera (Handheld)": {
-        "prompt": "first-person immersive perspective, natural camera shake, realistic movement dynamics",
-        "camera_motion": "Handheld", "resolution": "288p (576x324)", "duration": "3s"},
+    "🚀 Sci-Fi Hyperdrive Warp (Slow Zoom In / 5s)": {
+        "prompt": "futuristic spacecraft jumping through hyperspace, star trails, glowing warp drive, vibrant cosmic nebula, 8k cinematic VFX",
+        "camera_motion": "Slow Zoom In", "resolution": "360p (640x360)", "duration": "5s"},
+    "🌊 Tropical Ocean Sunset Waves (Pan Left / 5s)": {
+        "prompt": "breathtaking crystal clear ocean waves gently crashing onto golden sand beach, dramatic sunset lighting, realistic fluid dynamics",
+        "camera_motion": "Pan Left", "resolution": "360p (640x360)", "duration": "5s"},
+    "🦸 Heroic Dynamic Showcase (Orbit Camera / 5s)": {
+        "prompt": "heroic character in detailed armor standing in dramatic environment, glowing elemental aura, smooth 360 degree orbit camera",
+        "camera_motion": "Orbit", "resolution": "360p (640x360)", "duration": "5s"},
 }
 
-# Backward-compat alias (the original code references PRESETS).
+VID2VID_PRESETS = {
+    "🎌 Anime / Manga Animation Restyle (Denoise 0.55)": {
+        "prompt": "restyle into vibrant studio anime animation, crisp cel shading, expressive features, Makoto Shinkai and Ufotable aesthetic",
+        "camera_motion": "Static", "resolution": "360p (640x360)", "duration": "5s", "denoise": 0.55},
+    "🌌 Cyberpunk Neon Overhaul (Denoise 0.60)": {
+        "prompt": "transform into dark cyberpunk night scene, glowing neon accents, reflective wet surfaces, atmospheric smoke",
+        "camera_motion": "Static", "resolution": "360p (640x360)", "duration": "5s", "denoise": 0.60},
+    "🎨 Fine Art Impressionist Painting (Denoise 0.65)": {
+        "prompt": "classical oil painting on canvas animation, textured brushstrokes, rich impasto, museum lighting",
+        "camera_motion": "Static", "resolution": "360p (640x360)", "duration": "5s", "denoise": 0.65},
+    "🎮 3D Unreal Engine 5 AAA Pass (Denoise 0.45)": {
+        "prompt": "AAA game cinematic restyle, Lumen global illumination, crisp PBR materials, photorealistic textures",
+        "camera_motion": "Static", "resolution": "360p (640x360)", "duration": "5s", "denoise": 0.45},
+}
+
+VIDEO_REFINE_PRESETS = {
+    "⚡ 2x Lanczos Super-Resolution (Smooth 60fps)": {
+        "prompt": "2x ultra-smooth video upscaling, motion vector stabilization, edge sharpness enhancement",
+        "camera_motion": "Static", "resolution": "360p (640x360)", "duration": "5s", "scale": "2x"},
+    "🔍 4x UltraSharp Detail Enhance Pass": {
+        "prompt": "4x high-fidelity detail refinement pass, artifact reduction, clean temporal consistency",
+        "camera_motion": "Static", "resolution": "360p (640x360)", "duration": "5s", "scale": "4x"},
+    "💎 HDR Cinematic Color Grade & Contrast": {
+        "prompt": "professional HDR color grading pass, deep shadows, natural skin recovery, highlight bloom",
+        "camera_motion": "Static", "resolution": "360p (640x360)", "duration": "5s", "scale": "1x (original)"},
+}
+
+VIDEO_PRESETS = TXT2VID_PRESETS
 PRESETS = TXT2IMG_PRESETS
 
 # Style Category keywords used to filter presets
@@ -1056,35 +1083,46 @@ class ComfyUIApp:
 
 
     def _scan_available_checkpoints(self):
-        """Dynamic Checkpoint Scanner: Auto-populates any .safetensors/.ckpt files in models/checkpoints and external paths."""
+        """Dynamic Checkpoint Scanner: Auto-populates any .safetensors/.ckpt files across all local and external directories."""
         try:
             available = list(MODELS.keys())
-            scan_dirs = [CKPT_DIR]
+            scan_dirs = [
+                CKPT_DIR,
+                os.path.join(COMFYUI_DIR, "models", "checkpoints"),
+                os.path.join(COMFYUI_DIR, "models", "unet"),
+                r"C:\Users\jakeb\AppData\Local\Programs\ComfyUIX\models\checkpoints",
+                r"C:\ComfyUI-Desktop\models\checkpoints",
+            ]
             ext_dir = getattr(self, "external_models_var", None)
             ext_p = ext_dir.get() if ext_dir else self.config_manager.settings.get("external_models_dir", "")
-            if ext_p and os.path.isdir(ext_p) and ext_p not in scan_dirs:
+            if ext_p and os.path.isdir(ext_p):
                 scan_dirs.append(ext_p)
 
             for d in scan_dirs:
-                if os.path.exists(d):
-                    for f in os.listdir(d):
-                        if f.endswith(".safetensors") or f.endswith(".ckpt"):
-                            name = os.path.splitext(f)[0]
-                            existing_files = [str(m.get("file", "")).lower() for m in MODELS.values()]
-                            if name not in MODELS and f.lower() not in existing_files:
-                                full_file = os.path.join(d, f) if d != CKPT_DIR else f
-                                MODELS[name] = {
-                                    "file": full_file, "value": full_file, "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5,
-                                    "sampler": "dpmpp_2m", "scheduler": "karras"
-                                }
-                                if name not in available:
-                                    available.append(name)
-            if hasattr(self, "model_menu") and self.model_menu is not None:
-                try:
-                    if hasattr(self.model_menu, "winfo_exists") and self.model_menu.winfo_exists():
-                        self.model_menu.configure(values=list(MODELS.keys()))
-                except Exception:
-                    pass
+                if d and os.path.exists(d):
+                    for root_dir, _, files in os.walk(d):
+                        for f in files:
+                            if f.endswith(".safetensors") or f.endswith(".ckpt"):
+                                name = os.path.splitext(f)[0]
+                                existing_files = [str(m.get("file", "")).lower() for m in MODELS.values()]
+                                if name not in MODELS and f.lower() not in existing_files:
+                                    full_file = os.path.join(root_dir, f) if root_dir != CKPT_DIR else f
+                                    MODELS[name] = {
+                                        "file": full_file, "value": full_file, "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5,
+                                        "sampler": "dpmpp_2m", "scheduler": "karras"
+                                    }
+                                    if name not in available:
+                                        available.append(name)
+            
+            def _update_ui():
+                if hasattr(self, "model_menu") and self.model_menu is not None:
+                    try:
+                        if hasattr(self.model_menu, "winfo_exists") and self.model_menu.winfo_exists():
+                            self.model_menu.configure(values=list(MODELS.keys()))
+                    except Exception:
+                        pass
+            if hasattr(self, "root") and self.root:
+                self.root.after(0, _update_ui)
         except Exception as e:
             logging.error("Scan checkpoints error: %s", e)
 
@@ -1245,7 +1283,7 @@ class ComfyUIApp:
                 lbl._img = ctk_img
                 lbl.pack()
             else:
-                lbl = ctk.CTkLabel(ghost, text="[Image]", fg_color=BRAND, text_color="#FFFFFF", corner_radius=6)
+                lbl = ctk.CTkLabel(ghost, text="[Image]", fg_color=BRAND, text_color="#000000", corner_radius=6)
                 lbl.pack()
             ghost.geometry("+%d+%d" % (event.x_root + 14, event.y_root + 14))
             self._drag_ghost = ghost
@@ -1365,8 +1403,10 @@ class ComfyUIApp:
         # Window Close Protocol
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        # Show window immediately, defer backend + gradient
+        # Show window immediately, defer backend + gradient + updates
+        root.after(50, self._update_tab_button_colors)
         root.after(100, self._paint_header)
+        root.after(2000, lambda: self._check_github_updates(silent=True))
         root.after(3000, self._start_header_gradient)
         # NOTE: backend threads are scheduled ONCE here. main() used to ALSO
         # schedule them (after 500ms), spawning a redundant start that the
@@ -1713,7 +1753,15 @@ class ComfyUIApp:
         self.version_label = ctk.CTkLabel(sb, text=ver_text, height=16, corner_radius=4,
                                           fg_color="transparent", text_color=TEXT_MUTED,
                                           font=ctk.CTkFont(family="Consolas", size=8))
-        self.version_label.grid(row=r, column=0, padx=14, pady=(0, 8), sticky="w")
+        self.version_label.grid(row=r, column=0, padx=14, pady=(0, 4), sticky="w")
+        r += 1
+
+        self.update_check_btn = ctk.CTkButton(sb, text="🔄 Check for Updates", height=24, corner_radius=6,
+                                              fg_color=BG_CARD_ALT, border_width=1, border_color=BORDER_MUTED,
+                                              hover_color=BRAND_HOVER, text_color=TEXT,
+                                              command=lambda: self._check_github_updates(silent=False),
+                                              font=ctk.CTkFont(family="Consolas", size=9))
+        self.update_check_btn.grid(row=r, column=0, padx=12, pady=(0, 8), sticky="ew")
 
     def _apply_cursor_style(self, widget):
         try:
@@ -5109,29 +5157,40 @@ class ComfyUIApp:
             self._tab_switch_lock = True
             try:
                 tab_map = {
-                    "Text to Image": "txt2img", "Text to Image": "txt2img", "txt2img": "txt2img",
-                    "Image to Image": "img2img", "Image to Image": "img2img", "img2img": "img2img",
-                    "Upscale": "upscale", "Upscale": "upscale", "upscale": "upscale",
-                    "Text to Video": "video", "Video to Video": "video",
-                    "Text to Video": "video", "Video to Video": "video",
-                    "Video": "video", "video": "video",
-                    "Video Refine & Upscale": "video", "Video Refine & Upscale": "video",
-                    "Audio": "audio", "Audio": "audio", "audio": "audio",
-                    "Debug": "debug", "Debug": "debug", "debug": "debug",
+                    "Text to Image": "txt2img", "txt2img": "txt2img",
+                    "Image to Image": "img2img", "img2img": "img2img",
+                    "Upscale": "upscale", "upscale": "upscale",
+                    "Text to Video": "txt2vid", "txt2vid": "txt2vid",
+                    "Video to Video": "v2v", "v2v": "v2v",
+                    "Video Refine & Upscale": "refine", "refine": "refine",
+                    "Audio": "audio", "audio": "audio",
+                    "Debug": "debug", "debug": "debug",
                 }
                 self.current_tab = tab_map.get(str(name), "txt2img")
                 if name in getattr(self, '_tab_callbacks', {}) and not getattr(self, '_tab_built', {}).get(name, False):
                     self._tab_callbacks[name]()
                     self._tab_built[name] = True
-                # ADDITIVE: rebuild the preset menu so it reflects the active tab's
-                # engine-filtered preset dict on every tab switch.
                 if hasattr(self, '_update_preset_menu_for_tab'):
                     self._update_preset_menu_for_tab()
+                self._update_tab_button_colors()
             finally:
                 self._tab_switch_lock = False
         except Exception as e:
             self._tab_switch_lock = False
-            self._set_status("Error: %s" % str(e)[:30])
+            self._set_status(f"Error: {str(e)[:30]}")
+
+    def _update_tab_button_colors(self):
+        """Ensure active tab has black text (#000000) on neon green BRAND for maximum readability."""
+        try:
+            if hasattr(self, "tabview") and hasattr(self.tabview, "_segmented_button"):
+                cur = self.tabview.get()
+                for name, btn in self.tabview._segmented_button._buttons_dict.items():
+                    if name == cur:
+                        btn.configure(text_color="#000000", font=ctk.CTkFont(family="Consolas", size=11, weight="bold"))
+                    else:
+                        btn.configure(text_color="#CBD5E1", font=ctk.CTkFont(family="Consolas", size=11, weight="normal"))
+        except Exception:
+            pass
 
 
     # ------------------------------------------------------------------
@@ -7017,7 +7076,7 @@ class ComfyUIApp:
             self._set_status("Open dir error: %s" % str(e)[:30])
 
     def _toggle_matrix_hud(self):
-        """Focus or launch Matrix AI HUD Companion application with instant IPC response."""
+        """Focus or launch Matrix AI HUD Companion application with instant response."""
         try:
             trigger_file = r"C:\LocalCoder\.show_hud"
             try:
@@ -7027,18 +7086,47 @@ class ComfyUIApp:
                 pass
 
             hud_script = r"C:\LocalCoder\hermes_app.py"
-            python_exe = r"C:\Users\jakeb\AppData\Local\Programs\Python\Python311\pythonw.exe"
-            if not os.path.exists(python_exe):
-                python_exe = sys.executable
-            if os.path.exists(hud_script):
-                flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                subprocess.Popen([python_exe, hud_script], cwd=r"C:\LocalCoder", creationflags=flags)
+            py_candidates = [
+                r"C:\Users\jakeb\AppData\Local\Programs\Python\Python311\pythonw.exe",
+                r"C:\Users\jakeb\AppData\Local\Programs\Python\Python311\python.exe",
+                sys.executable
+            ]
+            chosen_py = None
+            for p in py_candidates:
+                if os.path.exists(p):
+                    chosen_py = p
+                    break
+
+            if chosen_py and os.path.exists(hud_script):
+                flags = subprocess.CREATE_NO_WINDOW if (os.name == "nt" and "python.exe" in chosen_py.lower()) else 0
+                subprocess.Popen([chosen_py, hud_script], cwd=r"C:\LocalCoder", creationflags=flags)
                 self._set_status("Matrix HUD online & focused")
-                self._show_toast("Matrix HUD", "Matrix AI HUD online & focused")
+                self._show_toast("Matrix HUD", "Matrix AI HUD launched & focused")
             else:
                 self._set_status("Matrix HUD script not found at C:\\LocalCoder")
         except Exception as e:
-            self._set_status("Matrix HUD launch error: %s" % e)
+            self._set_status(f"Matrix HUD launch error: {e}")
+
+    def _check_github_updates(self, silent=False):
+        """Check for updates on GitHub in background thread without blocking UI."""
+        def _worker():
+            try:
+                import github_updater
+                res = github_updater.check_for_updates(repo="Bonbrake/ComfyUIX", branch="main")
+                def _gui():
+                    if res.get("success"):
+                        msg = f"Update Available! ({res.get('latest_sha')})"
+                        if not silent:
+                            self._show_toast("Update Available", f"New commit found on GitHub ({res.get('latest_sha')}).")
+                            self._focus_settings()
+                        self._set_status(f"GitHub: {res.get('latest_sha')} available")
+                    elif not silent:
+                        self._show_toast("Check Updates", "ComfyUIX is up to date!")
+                self.root.after(0, _gui)
+            except Exception as e:
+                if not silent:
+                    self.root.after(0, lambda: self._show_toast("Check Updates", f"Check error: {e}"))
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _show_model_downloader_modal(self):
         """Open high-tech Matrix Model Vault & 1-Click Downloader modal."""
@@ -7579,16 +7667,20 @@ class ComfyUIApp:
         """Return the preset dict for the current tab, optionally filtered
         by the selected Creative Style Category."""
         tab = self.current_tab
-        if tab == "txt2img":
+        if tab in ("txt2img", "Text to Image"):
             base = TXT2IMG_PRESETS
-        elif tab == "img2img":
+        elif tab in ("img2img", "Image to Image"):
             base = IMG2IMG_PRESETS
-        elif tab == "upscale":
+        elif tab in ("upscale", "Upscale"):
             base = UPSCALE_PRESETS
-        elif tab == "audio":
+        elif tab in ("txt2vid", "Text to Video"):
+            base = TXT2VID_PRESETS
+        elif tab in ("v2v", "video", "Video to Video"):
+            base = VID2VID_PRESETS
+        elif tab in ("refine", "Video Refine & Upscale"):
+            base = VIDEO_REFINE_PRESETS
+        elif tab in ("audio", "Audio"):
             base = AUDIO_PRESETS
-        elif tab in ("video", "txt2vid", "img2vid", "refine"):
-            base = VIDEO_PRESETS
         else:
             base = TXT2IMG_PRESETS
         style = self.target_engine_str.get() if hasattr(self, "target_engine_str") else "All Styles"
