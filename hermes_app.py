@@ -671,6 +671,14 @@ class HermesMatrixApp(QWidget):
         if isinstance(geo, QByteArray) and geo.size() > 0:
             self.restoreGeometry(geo)
 
+        # Validate that window is on a visible screen, else center on primary monitor
+        try:
+            screen = QApplication.primaryScreen().availableGeometry()
+            if not screen.intersects(self.geometry()):
+                self.move((screen.width() - 600) // 2, (screen.height() - 720) // 2)
+        except Exception:
+            pass
+
         # Background rain
         self.rain = CMatrixWidget(self)
         self.rain.setGeometry(0, 0, self.width(), self.height())
@@ -938,6 +946,12 @@ class HermesMatrixApp(QWidget):
             self.show()
             self.raise_()
             self.activateWindow()
+            if os.name == "nt":
+                import ctypes
+                hwnd = int(self.winId())
+                ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                ctypes.windll.user32.SetWindowPos(hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
         except Exception:
             pass
 

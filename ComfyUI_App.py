@@ -6709,6 +6709,16 @@ class ComfyUIApp:
                 self.status_label.configure(text=truncated, text_color=("#FFAAAA", "#FF5555"))
             else:
                 self.status_label.configure(text=truncated, text_color=BRAND)
+
+            # Update top preview backend pill
+            if hasattr(self, "preview_backend_pill") and self.preview_backend_pill.winfo_exists():
+                low = msg.lower()
+                if "loading backend" in low or "server start" in low:
+                    self.preview_backend_pill.configure(text="⏳ LOADING BACKEND...", text_color="#FFB800")
+                elif "online" in low or "ready" in low or "staged" in low or "idle" in low:
+                    self.preview_backend_pill.configure(text="● BACKEND ONLINE", text_color="#00FF66")
+                elif "failed" in low or "error" in low:
+                    self.preview_backend_pill.configure(text="⚠ BACKEND ERROR", text_color="#FF5555")
         except Exception:
             pass
 
@@ -6927,8 +6937,18 @@ class ComfyUIApp:
         pane.grid_columnconfigure(0, weight=1)
         pane.grid_rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(pane, text="Preview", font=ctk.CTkFont(size=12, weight="bold"),
-                     text_color=TEXT).grid(row=0, column=0, padx=12, pady=(10, 4), sticky="w")
+        # Top header row inside preview box: Title on left, live Backend status chip on right
+        self.preview_top_bar = ctk.CTkFrame(pane, fg_color="transparent")
+        self.preview_top_bar.grid(row=0, column=0, padx=12, pady=(10, 4), sticky="ew")
+        self.preview_top_bar.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(self.preview_top_bar, text="PREVIEW & MONITOR", font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+                     text_color=TEXT).grid(row=0, column=0, sticky="w")
+
+        self.preview_backend_pill = ctk.CTkLabel(self.preview_top_bar, text="● BACKEND STANDBY",
+                                                font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+                                                text_color=BRAND, fg_color=BG_CARD_ALT, corner_radius=6, padx=8, pady=2)
+        self.preview_backend_pill.grid(row=0, column=1, sticky="e")
 
         self.preview_big = ctk.CTkLabel(pane,
             text="No image yet.\nGenerate to preview your result here.",
