@@ -38,7 +38,6 @@ def record(category, test_name, passed, details=""):
 def test_vector_1_ast_and_symbols():
     cat = "Vector 1: AST & Symbol Integrity"
     py_files = [
-        "config.py",
         "ComfyUI_App.py",
         "gallery.py",
         "model_downloader.py",

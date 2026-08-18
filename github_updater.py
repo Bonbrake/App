@@ -17,7 +17,6 @@ DEFAULT_REPOS = [
 ]
 
 TRACKED_SCRIPTS = [
-    "config.py",
     "ComfyUI_App.py",
     "glass.py",
     "model_downloader.py",
@@ -26,7 +25,6 @@ TRACKED_SCRIPTS = [
     "github_updater.py",
     "qa_suite.py",
     "multi_angle_debug.py",
-    "AUDIT_PLAN_AND_SPECIFICATION.md",
     "comfyui_desktop/__init__.py",
     "comfyui_desktop/ws_client.py",
     "comfyui_desktop/inpaint_canvas.py",
@@ -175,27 +173,6 @@ def apply_script_update(repo="Bonbrake/ComfyUIX", branch="main", progress_callba
         "files_updated": updated_files,
         "commit": info.get("commit"),
     }
-
-def restart_app_with_session(app_instance=None):
-    """Snapshot current active workspace session and seamlessly restart the desktop app."""
-    if app_instance and hasattr(app_instance, "_snapshot_session_state"):
-        try:
-            app_instance._snapshot_session_state()
-        except Exception as e:
-            pass
-    
-    # Launch new process
-    main_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ComfyUI_App.py")
-    if os.path.isfile(main_script):
-        import subprocess
-        subprocess.Popen([sys.executable, main_script])
-        if app_instance and hasattr(app_instance, "root") and app_instance.root:
-            try:
-                app_instance.root.after(100, app_instance._force_quit)
-            except Exception:
-                sys.exit(0)
-        else:
-            sys.exit(0)
 
 if __name__ == "__main__":
     print("=" * 60)

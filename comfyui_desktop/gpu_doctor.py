@@ -14,24 +14,12 @@ import subprocess
 
 logger = logging.getLogger(__name__)
 
-_CACHED_GPU_INFO = None
 
-
-def detect_gpu_hardware(force_refresh: bool = False) -> dict:
+def detect_gpu_hardware() -> dict:
     """Detect GPU hardware vendor, model, VRAM capacity, driver, and compute backend.
     
-    Results are cached in-memory to prevent continuous subprocess execution during telemetry polling.
+    Returns a structured dictionary with hardware specifications.
     """
-    global _CACHED_GPU_INFO
-    if _CACHED_GPU_INFO is not None and not force_refresh:
-        try:
-            import torch
-            if torch.cuda.is_available():
-                free_mem, _ = torch.cuda.mem_get_info()
-                _CACHED_GPU_INFO["vram_free_mb"] = int(free_mem / (1024 * 1024))
-        except Exception:
-            pass
-        return dict(_CACHED_GPU_INFO)
     info = {
         "vendor": "unknown",
         "name": "Unknown Graphics Device",
@@ -191,7 +179,6 @@ def detect_gpu_hardware(force_refresh: bool = False) -> dict:
     info["recommended_args"] = args
     info["vram_mb"] = info["vram_total_mb"]
     info["vram_gb"] = round(info["vram_total_mb"] / 1024.0, 1) if info["vram_total_mb"] else 0.0
-    _CACHED_GPU_INFO = dict(info)
     return info
 
 

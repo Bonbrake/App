@@ -4,22 +4,6 @@ Wraps official ComfyUI 0.29.0 portable
 """
 import os
 import sys
-
-# ---------------------------------------------------------------------------
-# ZERO-CONSOLE GUI INITIALIZATION
-# Instantly hide any attached black console/terminal window on Windows GUI
-# launch. All logs, prints, and errors are cleanly captured by _SafeStreamWriter,
-# written to diagnostics/app.log, and displayed in the in-app Debug Console tab.
-# ---------------------------------------------------------------------------
-if os.name == "nt" and "--show-console" not in sys.argv:
-    try:
-        import ctypes
-        _h_console = ctypes.windll.kernel32.GetConsoleWindow()
-        if _h_console:
-            ctypes.windll.user32.ShowWindow(_h_console, 0)  # 0 = SW_HIDE
-    except Exception:
-        pass
-
 import json
 import time
 import random
@@ -29,22 +13,6 @@ import subprocess
 import traceback
 import datetime
 import logging
-
-# Safe standard stream redirection for pythonw.exe & background process launches
-class _SafeStreamWriter:
-    def write(self, s):
-        try:
-            if s and s.strip():
-                logging.info(s.strip())
-        except Exception:
-            pass
-    def flush(self): pass
-    def isatty(self): return False
-
-if sys.stdout is None:
-    sys.stdout = _SafeStreamWriter()
-if sys.stderr is None:
-    sys.stderr = _SafeStreamWriter()
 
 # FIX (2026-08-12): ensure Tcl/Tk init files are locatable when frozen.
 # Under PyInstaller's onefile bootloader the bundled _tcl_data/_tk_data are NOT
@@ -62,6 +30,7 @@ def _ensure_tcl_tk_env():
     them immediately before ctk.CTk(). Search well-known locations and fall back
     to any Python3x tcl install so the fix is portable, not hardcoded to one user.
     """
+    import glob as _glob
     candidates = [
         os.path.join(sys.base_prefix, "tcl"),
         os.path.join(sys.prefix, "tcl"),
@@ -70,6 +39,8 @@ def _ensure_tcl_tk_env():
         r"C:\Python312\tcl",
         r"C:\Python313\tcl",
     ]
+    # Also glob any C:\Users\*\AppData\Local\Programs\Python\Python3*\tcl
+    candidates += _glob.glob(r"C:\Users\*\AppData\Local\Programs\Python\Python3*\tcl")
     for base in candidates:
         if not base: continue
         _tcl = os.path.join(base, "tcl8.6")
@@ -77,18 +48,7 @@ def _ensure_tcl_tk_env():
         if os.path.isdir(_tcl) and os.path.isdir(_tk):
             os.environ["TCL_LIBRARY"] = _tcl
             os.environ["TK_LIBRARY"] = _tk
-            return
-            
-    # Fallback to current user AppData Python only if needed
-    user_prof = os.environ.get("USERPROFILE", "")
-    if user_prof:
-        cand = os.path.join(user_prof, "AppData", "Local", "Programs", "Python", f"Python{sys.version_info.major}{sys.version_info.minor}", "tcl")
-        _tcl = os.path.join(cand, "tcl8.6")
-        _tk = os.path.join(cand, "tk8.6")
-        if os.path.isdir(_tcl) and os.path.isdir(_tk):
-            os.environ["TCL_LIBRARY"] = _tcl
-            os.environ["TK_LIBRARY"] = _tk
-            return
+            break
 
 def _reassert_tcl_tk_env():
     """Call RIGHT BEFORE ctk.CTk() -- defeats PyInstaller onefile rthook override."""
@@ -153,137 +113,22 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import tkinter.font as tkfont
 
-def _apply_customtkinter_performance_patches():
-    """Applies high-performance non-destructive patches to CustomTkinter core engine.
-    
-    1. Coalesces CTkBaseClass._update_dimensions_event (throttled 40fps) to eliminate
-       thousands of redundant C-level Tk canvas redraws during window dragging/resizing.
-    2. Eliminates blocking self._canvas.update_idletasks() calls inside CTkOptionMenu._draw
-       and CTkScrollbar._draw which were stalling the Tk event loop on Windows.
-    """
-    try:
-        import customtkinter.windows.widgets.core_widget_classes.ctk_base_class as base
-        import customtkinter.windows.widgets.ctk_optionmenu as opt
-        import customtkinter.windows.widgets.ctk_scrollbar as sb
-
-        if getattr(base, "_comfyuix_perf_patched", False):
-            return
-        base._comfyuix_perf_patched = True
-
-        _orig_dim = base.CTkBaseClass._update_dimensions_event
-
-        def _fast_update_dimensions_event(self, event):
-            rw = self._reverse_widget_scaling(event.width)
-            rh = self._reverse_widget_scaling(event.height)
-            if round(self._current_width) != round(rw) or round(self._current_height) != round(rh):
-                self._current_width = rw
-                self._current_height = rh
-                now = time.time()
-                if now - getattr(self, "_last_draw_t", 0.0) > 0.025:
-                    self._last_draw_t = now
-                    self._draw(no_color_updates=True)
-                else:
-                    job = getattr(self, "_debounced_draw_job", None)
-                    if job is None:
-                        def _deferred_draw():
-                            self._debounced_draw_job = None
-                            self._last_draw_t = time.time()
-                            try:
-                                self._draw(no_color_updates=True)
-                            except Exception:
-                                pass
-                        try:
-                            self._debounced_draw_job = self.after(25, _deferred_draw)
-                        except Exception:
-                            pass
-
-        base.CTkBaseClass._update_dimensions_event = _fast_update_dimensions_event
-
-        def _fast_opt_draw(self, no_color_updates=False):
-            super(opt.CTkOptionMenu, self)._draw(no_color_updates)
-            left_section_width = self._current_width - self._current_height
-            requires_recoloring = self._draw_engine.draw_rounded_rect_with_border_vertical_split(
-                self._apply_widget_scaling(self._current_width),
-                self._apply_widget_scaling(self._current_height),
-                self._apply_widget_scaling(self._corner_radius),
-                0,
-                self._apply_widget_scaling(left_section_width))
-            requires_recoloring_2 = self._draw_engine.draw_dropdown_arrow(
-                self._apply_widget_scaling(self._current_width - (self._current_height / 2)),
-                self._apply_widget_scaling(self._current_height / 2),
-                self._apply_widget_scaling(self._current_height / 3))
-            if no_color_updates is False or requires_recoloring or requires_recoloring_2:
-                self._canvas.configure(bg=self._apply_appearance_mode(self._bg_color))
-                self._canvas.itemconfig('inner_parts_left', outline=self._apply_appearance_mode(self._fg_color), fill=self._apply_appearance_mode(self._fg_color))
-                self._canvas.itemconfig('inner_parts_right', outline=self._apply_appearance_mode(self._button_color), fill=self._apply_appearance_mode(self._button_color))
-                if self._state == 'disabled':
-                    self._text_label.configure(fg=self._apply_appearance_mode(self._text_color_disabled))
-                    self._canvas.itemconfig('dropdown_arrow', fill=self._apply_appearance_mode(self._text_color_disabled))
-                else:
-                    self._text_label.configure(fg=self._apply_appearance_mode(self._text_color))
-                    self._canvas.itemconfig('dropdown_arrow', fill=self._apply_appearance_mode(self._text_color))
-                self._text_label.configure(bg=self._apply_appearance_mode(self._fg_color))
-
-        opt.CTkOptionMenu._draw = _fast_opt_draw
-
-        def _fast_sb_draw(self, no_color_updates=False):
-            super(sb.CTkScrollbar, self)._draw(no_color_updates)
-            c_start, c_end = self._get_scrollbar_values_for_minimum_pixel_size()
-            requires_recoloring = self._draw_engine.draw_rounded_scrollbar(
-                self._apply_widget_scaling(self._current_width),
-                self._apply_widget_scaling(self._current_height),
-                self._apply_widget_scaling(self._corner_radius),
-                self._apply_widget_scaling(self._border_spacing),
-                c_start, c_end, self._orientation)
-            if no_color_updates is False or requires_recoloring:
-                hover_col = self._button_hover_color if self._hover_state else self._button_color
-                self._canvas.itemconfig('scrollbar_parts', fill=self._apply_appearance_mode(hover_col), outline=self._apply_appearance_mode(hover_col))
-                bg_col = self._bg_color if self._fg_color == 'transparent' else self._fg_color
-                self._canvas.configure(bg=self._apply_appearance_mode(bg_col))
-                self._canvas.itemconfig('border_parts', fill=self._apply_appearance_mode(bg_col), outline=self._apply_appearance_mode(bg_col))
-
-        sb.CTkScrollbar._draw = _fast_sb_draw
-    except Exception as e:
-        logging.debug("Performance patches: %s", e)
-
-_apply_customtkinter_performance_patches()
-
 import requests
 try:
-    from config import (
-        ConfigManager, CONFIG_FILE, OUTPUT_DIR, INPUT_DIR, LOG_DIR, COMFYUI_DIR, PYTHON_PATH,
-        BASE_DIR, ASPECT_RATIOS, clamp_to_multiple_of_8, TOOLTIPS as CONFIG_TOOLTIPS
-    )
+    from config import ConfigManager, CONFIG_FILE, OUTPUT_DIR, INPUT_DIR, LOG_DIR, COMFYUI_DIR, PYTHON_PATH
 except Exception:
     class ConfigManager:
         def __init__(self, config_path="config.json"): self.config_path = config_path
         def load(self): return {}
-        def save(self, d=None): pass
+        def save(self, d): pass
         def get(self, k, default=None): return default
         def set(self, k, v): pass
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     CONFIG_FILE = "config.json"
-    OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-    INPUT_DIR = os.path.join(BASE_DIR, "input")
-    LOG_DIR = os.path.join(BASE_DIR, "logs")
-    COMFYUI_DIR = os.path.join(BASE_DIR, "ComfyUI")
+    OUTPUT_DIR = os.path.join(os.getcwd(), "output")
+    INPUT_DIR = os.path.join(os.getcwd(), "input")
+    LOG_DIR = os.path.join(os.getcwd(), "logs")
+    COMFYUI_DIR = os.path.join(os.getcwd(), "ComfyUI")
     PYTHON_PATH = sys.executable
-    ASPECT_RATIOS = {
-        "1:1 Square": {"w": 1024, "h": 1024, "label": "1:1 (1024×1024)"},
-        "16:9 Landscape": {"w": 1344, "h": 768, "label": "16:9 (1344×768)"},
-        "9:16 Portrait": {"w": 768, "h": 1344, "label": "9:16 (768×1344)"},
-        "4:3 Photo": {"w": 1152, "h": 864, "label": "4:3 (1152×864)"},
-        "3:4 Portrait": {"w": 864, "h": 1152, "label": "3:4 (864×1152)"},
-        "21:9 Cinema": {"w": 1536, "h": 640, "label": "21:9 (1536×640)"},
-    }
-    def clamp_to_multiple_of_8(val, default=512, min_val=64, max_val=8192):
-        try:
-            v = int(val)
-            v = max(min_val, min(max_val, v))
-            return (v // 8) * 8
-        except Exception:
-            return default
-    CONFIG_TOOLTIPS = {}
 
 try:
     from PIL import Image, ImageTk, ImageFile
@@ -345,9 +190,6 @@ class AutoHideScrollFrame(ctk.CTkFrame):
         self.inner = ctk.CTkFrame(self._canvas, fg_color="transparent")
         self._win = self._canvas.create_window((0, 0), window=self.inner, anchor="nw")
 
-        self._last_width = None
-        self._scroll_job = None
-
         self.inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>", self._on_canvas_configure)
         self._canvas.bind("<MouseWheel>", self._on_wheel)
@@ -373,22 +215,12 @@ class AutoHideScrollFrame(ctk.CTkFrame):
 
     # ---- geometry ----
     def _on_inner_configure(self, event=None):
-        if self._scroll_job is None:
-            self._scroll_job = self.after(16, self._update_scrollregion)
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        self._bind_mousewheel_recursive(self.inner)
 
     def _on_canvas_configure(self, event):
-        if self._last_width != event.width:
-            self._last_width = event.width
-            self._canvas.itemconfigure(self._win, width=event.width)
-            if self._scroll_job is None:
-                self._scroll_job = self.after(16, self._update_scrollregion)
-
-    def _update_scrollregion(self):
-        self._scroll_job = None
-        try:
-            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        except Exception:
-            pass
+        self._canvas.itemconfigure(self._win, width=event.width)
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
 
     def _bind_mousewheel_recursive(self, widget):
         """Recursively route mousewheel events from all sliders/widgets to parent scrolling."""
@@ -817,53 +649,53 @@ MODELS = {
 # plus an explicit 'format' key that drives _convert_to_game_texture suffixing.
 
 TXT2IMG_PRESETS = {
-    "📸 Photoreal 85mm Portrait": {
-        "model": "epiCRealism XL v5",
+    "📸 Photoreal 85mm Portrait (Masterpiece)": {
+        "model": "epiCRealism XL",
         "prompt": "ultra realistic 85mm portrait, professional studio lighting, natural skin micro-texture, pores, subsurface scattering, expressive eyes, catchlights, sharp focus, 8k raw photo, DSLR masterpiece",
         "neg": "plastic skin, anime, 3d render, illustration, cartoon, blurry, bad anatomy, deformed eyes, extra fingers, watermark, signature",
         "w": 832, "h": 1216, "steps": 30, "cfg": 6.5, "format": "PNG (Standard)"},
-    "🎬 Cinematic 35mm Movie": {
-        "model": "Juggernaut XL v11",
+    "🎬 Cinematic 35mm Movie Scene (Anamorphic)": {
+        "model": "Juggernaut XL",
         "prompt": "cinematic film still, 35mm anamorphic lens, Panavision bokeh, volumetric atmospheric haze, dramatic rim lighting, cinematic color grading, rich shadows, Kodak Portra 400 aesthetic, 8k resolution",
         "neg": "cgi, 3d render, oversaturated, blurry, bad lighting, text, watermark",
         "w": 1344, "h": 768, "steps": 32, "cfg": 7.0, "format": "PNG (Standard)"},
-    "🎌 Anime Key Visual": {
-        "model": "Illustrious XL / Pony V6",
+    "🎌 Anime Studio Key Visual (Makoto Shinkai)": {
+        "model": "Pony Diffusion V6 XL",
         "prompt": "masterpiece anime key visual, dynamic lighting, glowing elemental aura, intricate character design, vibrant studio illumination, Makoto Shinkai and Ufotable aesthetic, ultra detailed, crisp lineart",
         "neg": "3d render, realistic photo, blurry, bad anatomy, lowres, extra fingers, watermark, signature",
         "w": 832, "h": 1216, "steps": 25, "cfg": 7.0, "format": "PNG (Standard)"},
-    "🌌 Cyberpunk Night City": {
-        "model": "Juggernaut XL v11",
+    "🌌 Cyberpunk 2077 Night City (Rain & Neon)": {
+        "model": "Juggernaut XL",
         "prompt": "cyberpunk megacity street at rainy night, vibrant neon reflections in wet asphalt, holographic billboards, flying futuristic vehicles, dense steam, atmospheric volumetric lighting, raytraced reflections, 8k",
         "neg": "blurry, low quality, flat lighting, sunny, daytime, watermark, text",
         "w": 1216, "h": 832, "steps": 30, "cfg": 6.5, "format": "PNG (Standard)"},
-    "🧙 Dark Fantasy Knight": {
-        "model": "epiCRealism XL v5",
+    "🧙 Dark Fantasy Knight (Runic Armor & Magic)": {
+        "model": "epiCRealism XL",
         "prompt": "epic dark fantasy warrior in ornate runic plate armor, glowing ancient sword, swirling magical mist, crumbling gothic cathedral background, dramatic volumetric rim lighting, highly detailed Artstation concept art",
         "neg": "blurry, low quality, distorted anatomy, extra limbs, modern, plastic, text",
         "w": 832, "h": 1216, "steps": 32, "cfg": 6.5, "format": "PNG (Standard)"},
-    "🌿 Hyperreal Alpine Nature": {
-        "model": "Juggernaut XL v11",
+    "🌿 Hyperreal Alpine Mountain & River (8K)": {
+        "model": "Juggernaut XL",
         "prompt": "breathtaking hyperrealistic alpine mountain valley, crystal clear glacial river, snow-capped jagged peaks, golden hour sunlight, lush pine forest, 8k resolution, National Geographic landscape photography",
         "neg": "blurry, cartoon, painting, artificial, low quality, watermark, text, people",
         "w": 1344, "h": 768, "steps": 35, "cfg": 6.0, "format": "PNG (Standard)"},
-    "🎮 AAA Game Character": {
-        "model": "epiCRealism XL v5",
+    "🎮 AAA 3D Character Concept (UE5 Lumen)": {
+        "model": "epiCRealism XL",
         "prompt": "full body 3D game character concept render, AAA hero asset, intricate sci-fi tactical armor, neutral standing pose, studio key light, Unreal Engine 5 Lumen rendering, ZBrush sculpt detail, PBR materials, 8k",
         "neg": "blurry, 2d sketch, flat, low quality, bad anatomy, cropped",
         "w": 832, "h": 1216, "steps": 32, "cfg": 7.0, "format": "Unreal Engine 5 (TGA PBR Asset)"},
-    "💎 Luxury Product Studio": {
-        "model": "Juggernaut XL v11",
+    "💎 Luxury Commercial Product Studio": {
+        "model": "Juggernaut XL",
         "prompt": "commercial luxury studio product photography, elegant pedestal, clean glass reflections, dramatic directional spotlight, minimal aesthetic, Hasselblad medium format, ultra sharp focus, 8k",
         "neg": "blurry, cheap, noisy, low quality, bad lighting, text, watermark",
         "w": 1024, "h": 1024, "steps": 28, "cfg": 6.0, "format": "PNG (Standard)"},
-    "🎨 Fine Art Oil Painting": {
-        "model": "Juggernaut XL v11",
+    "🎨 Fine Art Oil Painting (Impressionist)": {
+        "model": "Juggernaut XL",
         "prompt": "masterpiece oil on canvas painting, visible textured brushstrokes, rich impasto, vibrant harmonious color palette, classic impressionist style, dramatic light and shadow, museum piece",
         "neg": "photo, digital render, 3d, smooth plastic, blurry, lowres",
         "w": 1024, "h": 1024, "steps": 30, "cfg": 7.0, "format": "PNG (Standard)"},
-    "🚀 Sci-Fi Space Station": {
-        "model": "Juggernaut XL v11",
+    "🚀 Sci-Fi Space Station Orbit (Planetary View)": {
+        "model": "Juggernaut XL",
         "prompt": "massive futuristic orbital space station orbiting an Earth-like exoplanet, solar panels, glowing docking bays, realistic orbital mechanics, starfield background, cinematic sci-fi concept art, 8k",
         "neg": "blurry, cartoon, low quality, flat, watermark, text",
         "w": 1344, "h": 768, "steps": 32, "cfg": 6.5, "format": "PNG (Standard)"},
@@ -969,28 +801,28 @@ PRESETS = TXT2IMG_PRESETS
 
 # Style Category keywords used to filter presets
 ENGINE_KEYWORDS = {
-    "📸 Photorealism": ["photo", "portrait", "commercial", "dslr", "85mm", "skin", "realistic"],
-    "🎬 Cinematic (35mm)": ["cinematic", "film", "movie", "35mm", "anamorphic", "moody"],
-    "🎌 Anime & Art": ["anime", "manga", "shinkai", "illustration", "illustrious", "pony"],
-    "🌌 Cyberpunk": ["cyberpunk", "sci-fi", "neon", "space", "station", "hologram"],
-    "🧙 Fantasy & Concept": ["fantasy", "knight", "magic", "runic", "concept", "mythical"],
-    "🎮 Game Textures": ["game", "ue5", "character", "asset", "3d", "pbr", "texture", "tga"],
-    "🌿 Nature (8K)": ["landscape", "alpine", "mountain", "river", "nature", "forest"],
-    "🎨 Fine Art": ["oil", "painting", "fine art", "canvas", "impressionist", "watercolor"],
+    "📸 Photorealism & Portraits": ["photo", "portrait", "commercial", "dslr", "85mm"],
+    "🎬 Cinematic & Film (35mm)": ["cinematic", "film", "movie", "35mm", "anamorphic"],
+    "🎌 Anime & Digital Art": ["anime", "manga", "shinkai", "illustration"],
+    "🌌 Cyberpunk & Sci-Fi": ["cyberpunk", "sci-fi", "neon", "space", "station"],
+    "🧙 Fantasy & Concept Art": ["fantasy", "knight", "magic", "runic", "concept"],
+    "🎮 Game Art & 3D Assets": ["game", "ue5", "character", "asset", "3d"],
+    "🌿 Nature & Landscapes (8K)": ["landscape", "alpine", "mountain", "river", "nature"],
+    "🎨 Fine Art & Illustration": ["oil", "painting", "fine art", "canvas", "impressionist"],
 }
 STYLE_KEYWORDS = ENGINE_KEYWORDS
 
 # Target Style Category dropdown values
 TARGET_ENGINES = (
     "All Styles",
-    "📸 Photorealism",
-    "🎬 Cinematic (35mm)",
-    "🎌 Anime & Art",
-    "🌌 Cyberpunk",
-    "🧙 Fantasy & Concept",
-    "🎮 Game Textures",
-    "🌿 Nature (8K)",
-    "🎨 Fine Art",
+    "📸 Photorealism & Portraits",
+    "🎬 Cinematic & Film (35mm)",
+    "🎌 Anime & Digital Art",
+    "🌌 Cyberpunk & Sci-Fi",
+    "🧙 Fantasy & Concept Art",
+    "🎮 Game Art & 3D Assets",
+    "🌿 Nature & Landscapes (8K)",
+    "🎨 Fine Art & Illustration",
 )
 CREATIVE_STYLES = TARGET_ENGINES
 
@@ -1001,9 +833,9 @@ OUTPUT_FORMATS = ("PNG (Standard)", "Game Texture (TGA Power-of-Two)",
                   "Vulkan 1.4 (TGA/ORM/Normals/Sprite)")
 
 SAMPLERS = ["dpmpp_2m", "dpmpp_sde", "euler", "euler_ancestral", "dpmpp_2m_sde", "ddim"]
-SCHEDULERS = ["karras", "normal", "simple", "sgm_uniform", "ddim_uniform", "beta"]
-UPSCALE_MODELS = ["4x-UltraSharp.pth", "4x-Nomos8k.pth", "RealESRGAN_x4plus.pth", "4x_NMKD-Superscale_80000G.pth"]
-DEFAULT_NEG = "blurry, lowres, deformed, bad anatomy, watermark, text, low quality"
+SCHEDULERS = ["karras", "normal", "simple", "ddim_uniform", "beta"]
+UPSCALE_MODELS = ["4x-UltraSharp.pth", "4x_NMKD-Siax_200k.pth", "ESRGAN_4x.pth"]
+DEFAULT_NEG = "blurry, lowres, deformed, watermark, text"
 
 # ---- MiniMax H3 video resolution presets (width, height) ----
 # 8GB VRAM (RTX 2070S) safe ceiling verified: 512x288 fits (~1.7GB VRAM req),
@@ -1075,8 +907,6 @@ TOOLTIPS = {
     "Launch Args": ("Custom Launch Args", "Advanced: extra command-line flags passed to the ComfyUI server on restart. Separate with spaces."),
     "Random Seed": ("Random Seed", "When enabled, generates a new random seed for each image. Disable to reuse the seed value above."),
 }
-if CONFIG_TOOLTIPS:
-    TOOLTIPS.update(CONFIG_TOOLTIPS)
 
 # ---- Design System Tokens (Matrix Cyberpunk HUD Palette) ----
 ctk.set_appearance_mode("dark")
@@ -1535,10 +1365,12 @@ class ComfyUIApp:
     def __init__(self, root):
         self.root = root
         self._running = True
-
         # Initialize diagnostics system (crash handler + JSON logging + breadcrumbs)
         try:
             from comfyui_desktop.diagnostics import init_diagnostics, breadcrumb
+            # Stable base for crash dumps/bundles: in frozen onefile __file__ is
+            # inside the temp _MEI dir PyInstaller deletes on exit, so dumps would
+            # vanish. Use the real exe dir (or repo root when running from source).
             if getattr(sys, "frozen", False):
                 _diag_base = os.path.dirname(os.path.abspath(sys.executable))
             else:
@@ -1547,33 +1379,17 @@ class ComfyUIApp:
             breadcrumb("app_start")
         except Exception as e:
             logging.warning("Diagnostics init warning: %s", e)
-
         root.title("ComfyUIX — Matrix Edition")
         self._apply_window_icon()
-
-        # Zero-Jitter Atomic Geometry & Scaling Configuration
-        self.config_manager = ConfigManager()
-        saved_geom = self.config_manager.settings.get("window_geometry", "1280x1120+100+100")
-        safe_geom = self._validate_geometry_bounds(saved_geom)
-        root.geometry(safe_geom)
+        root.geometry("1280x1120")
         root.minsize(880, 580)
-
-        # Pre-apply UI scaling before constructing widgets to prevent secondary canvas reflow
-        try:
-            saved_scale = self.config_manager.settings.get("ui_scaling", "100%")
-            if saved_scale and saved_scale != "100%":
-                scale_float = int(saved_scale.replace("%", "")) / 100.0
-                ctk.set_widget_scaling(scale_float)
-                ctk.set_window_scaling(scale_float)
-        except Exception:
-            pass
-
         mode = ctk.get_appearance_mode().lower()
         root.configure(bg="#F1F5F9" if mode == "light" else "#0F0F12")
 
         self.tooltips_enabled = ctk.StringVar(value="1")
         self.current_tab = "txt2img"
         self.vars = {}
+        self.config_manager = ConfigManager()
         self.staged_image = None
         self.input_image_path = None
         self.history = []
@@ -1611,29 +1427,15 @@ class ComfyUIApp:
         self._last_preset_switch = 0
         self._last_generate = 0
 
-        try:
-            self._init_vars()
-            self._build_backdrop()
-            self._build_sidebar()
-            self._build_main()
-            self._build_status_bar()
-            self._build_sidebar_buttons()
-            self._restore_session_state()
-        except Exception as e:
-            logging.error("Exception during ComfyUIApp widget initialization: %s", e, exc_info=True)
-        finally:
-            try:
-                root.update_idletasks()
-            except Exception:
-                pass
-            try:
-                root.deiconify()
-                root.lift()
-                root.attributes("-topmost", True)
-                root.after_idle(root.attributes, "-topmost", False)
-                root.focus_force()
-            except Exception:
-                pass
+        self._init_vars()
+        self._build_backdrop()
+        self._build_sidebar()
+        self._build_main()
+        self._build_status_bar()
+        self._build_sidebar_buttons()
+        # Restore saved window geometry (written by on_close) so the app
+        # reopens where the user left it. Safe: never crashes if absent/invalid.
+        self._restore_config()
 
         # Keyboard Shortcuts
         root.bind("<Control-Return>", lambda e: self._on_ctrl_e())
@@ -1670,40 +1472,17 @@ class ComfyUIApp:
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Show window immediately, defer backend + gradient + updates + telemetry
-        root.after(30, self._force_window_to_foreground)
         root.after(50, self._update_tab_button_colors)
         root.after(100, self._paint_header)
-        root.after(180, self._force_window_to_foreground)
         root.after(500, self._update_sidebar_hud_status)
         root.after(1000, self._update_telemetry_tick)
         root.after(1500, self._verify_desktop_shortcut_startup)
         root.after(2000, lambda: self._check_github_updates(silent=True))
         root.after(3000, self._start_header_gradient)
-
-    def _force_window_to_foreground(self):
-        """Force the application window to the foreground and active focus on Windows."""
-        try:
-            if not (hasattr(self, "root") and self.root and self.root.winfo_exists()):
-                return
-            self.root.deiconify()
-            self.root.lift()
-            self.root.attributes("-topmost", True)
-            self.root.after(100, lambda: getattr(self, "root", None) and self.root.attributes("-topmost", False))
-            self.root.focus_force()
-
-            if os.name == "nt":
-                import ctypes
-                user32 = ctypes.windll.user32
-                hwnd = self.root.winfo_id()
-                top_hwnd = user32.GetAncestor(hwnd, 2) or hwnd
-                if top_hwnd:
-                    user32.ShowWindow(top_hwnd, 9)  # SW_RESTORE
-                    user32.SetWindowPos(top_hwnd, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
-                    user32.SetWindowPos(top_hwnd, -2, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
-                    user32.SetForegroundWindow(top_hwnd)
-                    user32.BringWindowToTop(top_hwnd)
-        except Exception:
-            pass
+        # NOTE: backend threads are scheduled ONCE here. main() used to ALSO
+        # schedule them (after 500ms), spawning a redundant start that the
+        # idempotency guard turned into a no-op but which muddied startup logs.
+        # Scheduled a single time from main() only to avoid the double-fire.
 
     def _apply_window_icon(self):
         """Set professional Matrix application icons for window titlebar, taskbar, and Alt-Tab."""
@@ -1734,7 +1513,7 @@ class ComfyUIApp:
 
     def _post_build(self):
         """Called after window is first shown — starts deferred animations/captures."""
-        self._force_window_to_foreground()
+        pass  # Now handled by after() calls in __init__
 
     def _recursive_destroy(self, widget):
         if not widget or not widget.winfo_exists():
@@ -1871,16 +1650,12 @@ class ComfyUIApp:
         self.config_manager.save()
 
     def _build_backdrop(self):
-        """Build and start real-time Matrix Digital Code Rain background canvas."""
+        """Configure clean dark obsidian root background."""
         try:
-            from glass import MatrixRainCanvas
-            if not hasattr(self, "matrix_rain") or self.matrix_rain is None:
-                self.matrix_rain = MatrixRainCanvas(self.root, font_size=13, fps=24)
-                self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
-                self.matrix_rain.tk.call("lower", self.matrix_rain._w)
-                self.matrix_rain.start()
-        except Exception as e:
-            logging.error("Failed to initialize Matrix digital rain backdrop: %s", e)
+            if hasattr(self, "root") and self.root:
+                self.root.configure(bg="#040A06")
+        except Exception:
+            pass
 
     def _start_backend_threads(self):
         """Start backend polling threads after UI is first rendered.
@@ -1963,6 +1738,16 @@ class ComfyUIApp:
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
+
+        # Real-time Matrix Digital Code Rain focused exclusively on the left sidebar
+        try:
+            from glass import MatrixRainCanvas
+            self.matrix_rain = MatrixRainCanvas(sb, font_size=11, fps=20)
+            self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
+            self.matrix_rain.tk.call("lower", self.matrix_rain._w)
+            self.matrix_rain.start()
+        except Exception as e:
+            logging.debug("Sidebar matrix rain initialization: %s", e)
 
         # Logo header
         # Matrix Top Wordmark & Cyber Pill
@@ -3090,8 +2875,8 @@ class ComfyUIApp:
         # silently swallows every left-click from CTk widgets and makes the app
         # feel dead. Debounce is handled per-handler only (see _on_tab, _on_model, etc.).
 
-        self.top = ctk.CTkFrame(self.root, fg_color=BG_APP, corner_radius=0)
-        self.top.grid(row=0, column=1, padx=16, pady=12, sticky="nsew")
+        self.top = ctk.CTkFrame(self.root, fg_color=BG_SIDEBAR, corner_radius=12, border_width=1, border_color=BORDER_MUTED)
+        self.top.grid(row=0, column=1, padx=(6, 16), pady=12, sticky="nsew")
         self.top.grid_columnconfigure(0, weight=1)   # params column
         self.top.grid_columnconfigure(0, weight=1, minsize=320)   # params column
         self.top.grid_columnconfigure(1, weight=0, minsize=260)   # preview column
@@ -3110,10 +2895,10 @@ class ComfyUIApp:
 
         toolbar = ctk.CTkFrame(self.top, fg_color="transparent")
         toolbar.grid(row=0, column=0, padx=0, pady=(0, 6), sticky="ew")
-        toolbar.grid_columnconfigure(0, weight=2)
+        toolbar.grid_columnconfigure(0, weight=0)
         toolbar.grid_columnconfigure(1, weight=0)
-        toolbar.grid_columnconfigure(2, weight=2)
-        toolbar.grid_columnconfigure(3, weight=2)
+        toolbar.grid_columnconfigure(2, weight=0)
+        toolbar.grid_columnconfigure(3, weight=1)
         toolbar.grid_columnconfigure(4, weight=0)
 
         self.model_menu = ctk.CTkOptionMenu(toolbar, values=self._available_models, font=self.FONT_NORMAL,
@@ -3124,17 +2909,17 @@ class ComfyUIApp:
                                             dropdown_fg_color=DROPDOWN_FG,
                                             dropdown_text_color=DROPDOWN_TEXT,
                                             dropdown_hover_color=DROPDOWN_HOVER,
-                                            command=self._on_model, width=120)
-        self.model_menu.grid(row=0, column=0, padx=(0, 3), sticky="ew")
+                                            command=self._on_model, width=135)
+        self.model_menu.grid(row=0, column=0, padx=(0, 4), sticky="w")
         ToolTip(self.model_menu, *TOOLTIPS["Model"])
 
         # Model Downloader & Manager Trigger Button
-        self.model_dl_btn = ctk.CTkButton(toolbar, text="📥 Models", width=70, height=28,
+        self.model_dl_btn = ctk.CTkButton(toolbar, text="📥 Models", width=75, height=28,
                                           fg_color=BG_CARD, border_width=1, border_color=BORDER_MUTED,
                                           text_color=ACCENT_CYAN, hover_color=BRAND_HOVER,
                                           font=self.FONT_SMALL_BOLD,
                                           command=self._show_model_downloader_modal)
-        self.model_dl_btn.grid(row=0, column=1, padx=(0, 3), sticky="w")
+        self.model_dl_btn.grid(row=0, column=1, padx=(0, 4), sticky="w")
         ToolTip(self.model_dl_btn, ("Model Manager", "1-Click download curated SDXL/SD1.5/FLUX models or custom URLs."))
 
         self._scan_available_checkpoints()
@@ -3147,8 +2932,8 @@ class ComfyUIApp:
                                              dropdown_fg_color=DROPDOWN_FG,
                                              dropdown_text_color=DROPDOWN_TEXT,
                                              dropdown_hover_color=DROPDOWN_HOVER,
-                                             command=self._on_preset, width=120)
-        self.preset_menu.grid(row=0, column=2, padx=3, sticky="ew")
+                                             command=self._on_preset, width=135)
+        self.preset_menu.grid(row=0, column=2, padx=4, sticky="w")
         ToolTip(self.preset_menu, *TOOLTIPS["Preset"])
 
         # Creative Style Category selector
@@ -3162,17 +2947,17 @@ class ComfyUIApp:
                                              dropdown_fg_color=DROPDOWN_FG,
                                              dropdown_text_color=DROPDOWN_TEXT,
                                              dropdown_hover_color=DROPDOWN_HOVER,
-                                             command=self._on_target_engine_change, width=120)
-        self.engine_menu.grid(row=0, column=3, padx=3, sticky="ew")
+                                             command=self._on_target_engine_change, width=140)
+        self.engine_menu.grid(row=0, column=3, padx=4, sticky="w")
         ToolTip(self.engine_menu, ("Creative Style Category",
                                    "Filter presets to a specific artistic genre (Photorealism, Cinematic 35mm, Anime, Cyberpunk, Fantasy)."))
         self._update_preset_menu_for_tab()
 
-        self.gen_btn = ctk.CTkButton(toolbar, text="⚡ GENERATE (CTRL+E)", width=125, font=self.FONT_NORMAL_BOLD,
+        self.gen_btn = ctk.CTkButton(toolbar, text="⚡ GENERATE (CTRL+E)", width=140, font=self.FONT_NORMAL_BOLD,
                                      fg_color=BRAND, hover_color=BRAND_HOVER,
                                      text_color="#001408",
                                      command=self._start_generate)
-        self.gen_btn.grid(row=0, column=4, padx=(4, 0), sticky="e")
+        self.gen_btn.grid(row=0, column=4, padx=(6, 0), sticky="e")
         ToolTip(self.gen_btn, *TOOLTIPS["Generate"])
 
 
@@ -3270,7 +3055,6 @@ class ComfyUIApp:
 
         self.prompt_entry = ctk.CTkTextbox(sf, height=60, font=self.FONT_TEXT,
                                            fg_color=BG_CARD_ALT, text_color=TEXT)
-        self.txt2img_prompt_entry = self.prompt_entry
         self.prompt_entry.grid(row=0, column=0, padx=10, pady=(8, 0), sticky="nsew")
         self._apply_cursor_style(self.prompt_entry)
         ToolTip(self.prompt_entry, *TOOLTIPS["Prompt"])
@@ -3282,13 +3066,10 @@ class ComfyUIApp:
         #  - "History ▾" lets you pick any of the last 20 prompts.
         hist_row = ctk.CTkFrame(sf, fg_color="transparent")
         hist_row.grid(row=1, column=0, padx=10, pady=(2, 0), sticky="w")
-        last_btn = ctk.CTkButton(hist_row, text="↺ Last Prompt", width=104, height=24,
+        ctk.CTkButton(hist_row, text="↺ Last Prompt", width=104, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
-                     command=lambda: self._restore_last_prompt("txt2img"))
-        last_btn.pack(side="left", padx=(0, 6))
-        ToolTip(last_btn, ("Last Prompt History", "Restore the previous generation prompt text into the active prompt editor."))
-
+                     command=lambda: self._restore_last_prompt("txt2img")).pack(side="left", padx=(0, 6))
         self.img_hist_var = tk.StringVar(value="History")
         self.img_hist_menu = ctk.CTkOptionMenu(hist_row, values=["History"],
                                                variable=self.img_hist_var, width=120, height=24,
@@ -3297,42 +3078,26 @@ class ComfyUIApp:
                                                dropdown_hover_color=DROPDOWN_HOVER,
                                                command=lambda v: self._apply_history_prompt(v, "txt2img"))
         self.img_hist_menu.pack(side="left")
-        ToolTip(self.img_hist_menu, ("Prompt History Vault", "Access saved prompts from recent generative runs."))
-
         # QoL: visible Copy-Prompt button (discoverable alternative to Ctrl+Shift+C)
-        copy_p_btn = ctk.CTkButton(hist_row, text="⧉ Copy", width=62, height=24,
+        ctk.CTkButton(hist_row, text="⧉ Copy", width=62, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
-                     command=lambda: self._copy_prompt())
-        copy_p_btn.pack(side="left", padx=(6, 0))
-        ToolTip(copy_p_btn, ("Copy Prompt", "Copy active prompt text to Windows clipboard (Ctrl+Shift+C)."))
-
-        clean_btn = ctk.CTkButton(hist_row, text="✨ Clean", width=64, height=24,
-                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
-                     hover_color=BRAND_HOVER,
-                     command=lambda: self._format_and_clean_prompt("txt2img"))
-        clean_btn.pack(side="left", padx=(6, 0))
-        ToolTip(clean_btn, ("Format & Clean Prompt", "Deduplicates tags, removes trailing/double commas, and normalizes prompt formatting."))
+                     command=lambda: self._copy_prompt()).pack(side="left", padx=(6, 0))
 
         # SOTA: 1-Click Local LLM prompt expansion & Parameter Re-Hydration
-        enh_btn = ctk.CTkButton(hist_row, text="⚡ Enhance", width=74, height=24,
+        ctk.CTkButton(hist_row, text="⚡ Enhance", width=74, height=24,
                      font=ctk.CTkFont(size=10, weight="bold"), fg_color="#123820", text_color="#00FF66",
                      hover_color=BRAND_HOVER,
-                     command=lambda: self._enhance_prompt_with_llm("txt2img"))
-        enh_btn.pack(side="left", padx=(6, 0))
-        ToolTip(enh_btn, *TOOLTIPS["Enhance Prompt"])
+                     command=lambda: self._enhance_prompt_with_llm("txt2img")).pack(side="left", padx=(6, 0))
 
-        rehyd_btn = ctk.CTkButton(hist_row, text="💧 Re-Hydrate", width=82, height=24,
+        ctk.CTkButton(hist_row, text="💧 Re-Hydrate", width=82, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
-                     command=lambda: self._rehydrate_from_image())
-        rehyd_btn.pack(side="left", padx=(6, 0))
-        ToolTip(rehyd_btn, *TOOLTIPS["Rehydrate"])
+                     command=lambda: self._rehydrate_from_image()).pack(side="left", padx=(6, 0))
         self._refresh_history_menu()
 
         self.neg_entry = ctk.CTkTextbox(sf, height=32, font=self.FONT_TEXT,
                                         fg_color=BG_CARD_ALT, text_color=TEXT)
-        self.txt2img_neg_entry = self.neg_entry
         self.neg_entry.grid(row=2, column=0, padx=10, pady=(2, 0), sticky="nsew")
         self._apply_cursor_style(self.neg_entry)
         ToolTip(self.neg_entry, *TOOLTIPS["Negative Prompt"])
@@ -3340,26 +3105,6 @@ class ComfyUIApp:
 
         m = self.vars["txt2img"]
         r = 3
-
-        # Aspect Ratio Quick Matrix & Swap
-        ar_frame = ctk.CTkFrame(sf, fg_color="transparent")
-        ar_frame.grid(row=r, column=0, padx=10, pady=(6, 2), sticky="ew")
-        r += 1
-        for idx, (ar_key, ar_info) in enumerate(ASPECT_RATIOS.items()):
-            def _make_set_ar(w=ar_info["w"], h=ar_info["h"]):
-                return lambda: (m["width"].set(str(clamp_to_multiple_of_8(w))), m["height"].set(str(clamp_to_multiple_of_8(h))))
-            short_lbl = ar_key.split(" ")[0]
-            b = ctk.CTkButton(ar_frame, text=short_lbl, width=42, height=22, font=ctk.CTkFont(size=9, weight="bold"),
-                              fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT, command=_make_set_ar(ar_info["w"], ar_info["h"]))
-            b.pack(side="left", padx=2)
-            ToolTip(b, ("Aspect Ratio " + short_lbl, f"Set resolution to {ar_info['w']}×{ar_info['h']} ({ar_info['label']})"))
-        
-        swap_b = ctk.CTkButton(ar_frame, text="⇄ Swap", width=55, height=22, font=ctk.CTkFont(size=9, weight="bold"),
-                               fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=ACCENT_CYAN,
-                               command=self._swap_dimensions)
-        swap_b.pack(side="left", padx=(6, 2))
-        ToolTip(swap_b, *TOOLTIPS["Swap Dimensions"])
-
         r = self._labeled(sf, r, "Width", "Width",
                       ctk.CTkEntry(sf, textvariable=m["width"], fg_color=BG_CARD_ALT, text_color=TEXT))
         r = self._labeled(sf, r, "Height", "Height",
@@ -3379,7 +3124,7 @@ class ComfyUIApp:
                                       dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                       dropdown_hover_color=DROPDOWN_HOVER))
 
-        # Seed with Random checkbox and dynamic steppers
+        # Seed with Random checkbox
         seed_frame = ctk.CTkFrame(sf, fg_color="transparent")
         seed_frame.grid_columnconfigure(0, weight=1)
         seed_entry = ctk.CTkEntry(seed_frame, textvariable=m["seed"], fg_color=BG_CARD_ALT, text_color=TEXT)
@@ -3396,43 +3141,8 @@ class ComfyUIApp:
                              onvalue="1", offvalue="0", command=_toggle_seed_txt2img,
                              font=self.FONT_SMALL, border_color=BORDER, text_color=TEXT,
                              hover_color=BRAND_HOVER, fg_color=BRAND)
-        cb.grid(row=0, column=1, padx=(6, 0), sticky="w")
-        ToolTip(cb, *TOOLTIPS["Randomize"])
+        cb.grid(row=0, column=1, padx=(8, 0), sticky="w")
         _toggle_seed_txt2img()
-
-        def _step_seed_txt2img(delta):
-            try:
-                curr = int(m["seed"].get())
-                m["seed"].set(str(max(0, curr + delta)))
-            except Exception:
-                m["seed"].set("0")
-        
-        def _copy_seed_txt2img():
-            try:
-                self.root.clipboard_clear()
-                self.root.clipboard_append(str(m["seed"].get()))
-                self._set_status(f"Seed copied: {m['seed'].get()}")
-            except Exception:
-                pass
-
-        step_up = ctk.CTkButton(seed_frame, text="+1", width=28, height=24, font=self.FONT_SMALL_BOLD,
-                                fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                                command=lambda: _step_seed_txt2img(1))
-        step_up.grid(row=0, column=2, padx=(4, 0))
-        ToolTip(step_up, *TOOLTIPS["Step Seed"])
-
-        step_dn = ctk.CTkButton(seed_frame, text="-1", width=28, height=24, font=self.FONT_SMALL_BOLD,
-                                fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                                command=lambda: _step_seed_txt2img(-1))
-        step_dn.grid(row=0, column=3, padx=(2, 0))
-        ToolTip(step_dn, *TOOLTIPS["Step Seed"])
-
-        copy_seed = ctk.CTkButton(seed_frame, text="📋", width=28, height=24, font=self.FONT_SMALL,
-                                  fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                                  command=_copy_seed_txt2img)
-        copy_seed.grid(row=0, column=4, padx=(2, 0))
-        ToolTip(copy_seed, *TOOLTIPS["Copy Seed"])
-
         r = self._labeled(sf, r, "Seed", "Seed", seed_frame)
 
         r = self._labeled(sf, r, "Batch Size", "Batch",
@@ -3510,40 +3220,9 @@ class ComfyUIApp:
         ToolTip(self.img2img_prompt_entry, *TOOLTIPS["Prompt"])
         self.img2img_prompt_entry.insert("1.0", "photorealistic portrait, detailed skin, studio light")
 
-        # QoL: Prompt Actions Bar for img2img
-        hist_row_i2i = ctk.CTkFrame(sf, fg_color="transparent")
-        hist_row_i2i.grid(row=3, column=0, padx=10, pady=(2, 0), sticky="w")
-        last_btn_i2i = ctk.CTkButton(hist_row_i2i, text="↺ Last", width=62, height=24,
-                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
-                     hover_color=BRAND_HOVER,
-                     command=lambda: self._restore_last_prompt("img2img"))
-        last_btn_i2i.pack(side="left", padx=(0, 4))
-        ToolTip(last_btn_i2i, ("Last Prompt History", "Restore the previous generation prompt text."))
-
-        copy_p_i2i = ctk.CTkButton(hist_row_i2i, text="⧉ Copy", width=55, height=24,
-                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
-                     hover_color=BRAND_HOVER,
-                     command=lambda: self._copy_prompt())
-        copy_p_i2i.pack(side="left", padx=(0, 4))
-        ToolTip(copy_p_i2i, ("Copy Prompt", "Copy active prompt to clipboard."))
-
-        clean_p_i2i = ctk.CTkButton(hist_row_i2i, text="✨ Clean", width=58, height=24,
-                     font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
-                     hover_color=BRAND_HOVER,
-                     command=lambda: self._format_and_clean_prompt("img2img"))
-        clean_p_i2i.pack(side="left", padx=(0, 4))
-        ToolTip(clean_p_i2i, ("Format & Clean Prompt", "Deduplicates tags and normalizes commas."))
-
-        enh_btn_i2i = ctk.CTkButton(hist_row_i2i, text="⚡ Enhance", width=70, height=24,
-                     font=ctk.CTkFont(size=10, weight="bold"), fg_color="#123820", text_color="#00FF66",
-                     hover_color=BRAND_HOVER,
-                     command=lambda: self._enhance_prompt_with_llm("img2img"))
-        enh_btn_i2i.pack(side="left", padx=(0, 4))
-        ToolTip(enh_btn_i2i, *TOOLTIPS["Enhance Prompt"])
-
         self.img2img_neg_entry = ctk.CTkTextbox(sf, height=32, font=self.FONT_TEXT,
                                                 fg_color=BG_CARD_ALT, text_color=TEXT)
-        self.img2img_neg_entry.grid(row=4, column=0, padx=10, pady=(6, 0), sticky="nsew")
+        self.img2img_neg_entry.grid(row=3, column=0, padx=10, pady=(6, 0), sticky="nsew")
         self._apply_cursor_style(self.img2img_neg_entry)
         ToolTip(self.img2img_neg_entry, *TOOLTIPS["Negative Prompt"])
         self.img2img_neg_entry.insert("1.0", DEFAULT_NEG)
@@ -3565,25 +3244,6 @@ class ComfyUIApp:
         denoise_lbl.grid(row=0, column=1, padx=(8, 0))
         r = self._labeled(sf, r, "Denoise", "Denoise", denoise_frame)
 
-        # Aspect Ratio Quick Matrix & Swap
-        ar_frame_i2i = ctk.CTkFrame(sf, fg_color="transparent")
-        ar_frame_i2i.grid(row=r, column=0, padx=10, pady=(6, 2), sticky="ew")
-        r += 1
-        for idx, (ar_key, ar_info) in enumerate(ASPECT_RATIOS.items()):
-            def _make_set_ar_i2i(w=ar_info["w"], h=ar_info["h"]):
-                return lambda: (m["width"].set(str(clamp_to_multiple_of_8(w))), m["height"].set(str(clamp_to_multiple_of_8(h))))
-            short_lbl = ar_key.split(" ")[0]
-            b = ctk.CTkButton(ar_frame_i2i, text=short_lbl, width=42, height=22, font=ctk.CTkFont(size=9, weight="bold"),
-                              fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT, command=_make_set_ar_i2i(ar_info["w"], ar_info["h"]))
-            b.pack(side="left", padx=2)
-            ToolTip(b, ("Aspect Ratio " + short_lbl, f"Set resolution to {ar_info['w']}×{ar_info['h']} ({ar_info['label']})"))
-        
-        swap_b_i2i = ctk.CTkButton(ar_frame_i2i, text="⇄ Swap", width=55, height=22, font=ctk.CTkFont(size=9, weight="bold"),
-                                   fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=ACCENT_CYAN,
-                                   command=self._swap_dimensions)
-        swap_b_i2i.pack(side="left", padx=(6, 2))
-        ToolTip(swap_b_i2i, *TOOLTIPS["Swap Dimensions"])
-
         r = self._labeled(sf, r, "Width", "Width",
                       ctk.CTkEntry(sf, textvariable=m["width"], fg_color=BG_CARD_ALT, text_color=TEXT))
         r = self._labeled(sf, r, "Height", "Height",
@@ -3603,7 +3263,7 @@ class ComfyUIApp:
                                       dropdown_fg_color=DROPDOWN_FG, dropdown_text_color=DROPDOWN_TEXT,
                                       dropdown_hover_color=DROPDOWN_HOVER))
 
-        # Seed with Random checkbox and dynamic steppers
+        # Seed with Random checkbox
         seed_frame = ctk.CTkFrame(sf, fg_color="transparent")
         seed_frame.grid_columnconfigure(0, weight=1)
         seed_entry = ctk.CTkEntry(seed_frame, textvariable=m["seed"], fg_color=BG_CARD_ALT, text_color=TEXT)
@@ -3620,43 +3280,8 @@ class ComfyUIApp:
                              onvalue="1", offvalue="0", command=_toggle_seed_img2img,
                              font=self.FONT_SMALL, border_color=BORDER, text_color=TEXT,
                              hover_color=BRAND_HOVER, fg_color=BRAND)
-        cb.grid(row=0, column=1, padx=(6, 0), sticky="w")
-        ToolTip(cb, *TOOLTIPS["Randomize"])
+        cb.grid(row=0, column=1, padx=(8, 0), sticky="w")
         _toggle_seed_img2img()
-
-        def _step_seed_img2img(delta):
-            try:
-                curr = int(m["seed"].get())
-                m["seed"].set(str(max(0, curr + delta)))
-            except Exception:
-                m["seed"].set("0")
-        
-        def _copy_seed_img2img():
-            try:
-                self.root.clipboard_clear()
-                self.root.clipboard_append(str(m["seed"].get()))
-                self._set_status(f"Seed copied: {m['seed'].get()}")
-            except Exception:
-                pass
-
-        step_up_i2i = ctk.CTkButton(seed_frame, text="+1", width=28, height=24, font=self.FONT_SMALL_BOLD,
-                                    fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                                    command=lambda: _step_seed_img2img(1))
-        step_up_i2i.grid(row=0, column=2, padx=(4, 0))
-        ToolTip(step_up_i2i, *TOOLTIPS["Step Seed"])
-
-        step_dn_i2i = ctk.CTkButton(seed_frame, text="-1", width=28, height=24, font=self.FONT_SMALL_BOLD,
-                                    fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                                    command=lambda: _step_seed_img2img(-1))
-        step_dn_i2i.grid(row=0, column=3, padx=(2, 0))
-        ToolTip(step_dn_i2i, *TOOLTIPS["Step Seed"])
-
-        copy_seed_i2i = ctk.CTkButton(seed_frame, text="📋", width=28, height=24, font=self.FONT_SMALL,
-                                      fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                                      command=_copy_seed_img2img)
-        copy_seed_i2i.grid(row=0, column=4, padx=(2, 0))
-        ToolTip(copy_seed_i2i, *TOOLTIPS["Copy Seed"])
-
         r = self._labeled(sf, r, "Seed", "Seed", seed_frame)
 
         r = self._labeled(sf, r, "Batch Size", "Batch",
@@ -3708,13 +3333,10 @@ class ComfyUIApp:
         # QoL: prompt-history recall controls (gated by qol_prompt_history).
         ihist_row = ctk.CTkFrame(sf, fg_color="transparent")
         ihist_row.grid(row=r, column=0, padx=10, pady=(8, 0), sticky="w"); r += 1
-        i_last_btn = ctk.CTkButton(ihist_row, text="↺ Last Prompt", width=104, height=24,
+        ctk.CTkButton(ihist_row, text="↺ Last Prompt", width=104, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
-                     command=lambda: self._restore_last_prompt("img2img"))
-        i_last_btn.pack(side="left", padx=(0, 6))
-        ToolTip(i_last_btn, ("Last Prompt History", "Restore the previous Image-to-Image prompt text into the active prompt editor."))
-
+                     command=lambda: self._restore_last_prompt("img2img")).pack(side="left", padx=(0, 6))
         self.img2img_hist_var = tk.StringVar(value="History")
         self.img2img_hist_menu = ctk.CTkOptionMenu(ihist_row, values=["History"],
                                                    variable=self.img2img_hist_var, width=120, height=24,
@@ -3723,22 +3345,16 @@ class ComfyUIApp:
                                                    dropdown_hover_color=DROPDOWN_HOVER,
                                                    command=lambda v: self._apply_history_prompt(v, "img2img"))
         self.img2img_hist_menu.pack(side="left")
-        ToolTip(self.img2img_hist_menu, ("Prompt History Vault", "Access saved prompts from recent generative runs."))
-
         # SOTA: 1-Click Local LLM prompt expansion & Parameter Re-Hydration
-        i_enh_btn = ctk.CTkButton(ihist_row, text="⚡ Enhance", width=74, height=24,
+        ctk.CTkButton(ihist_row, text="⚡ Enhance", width=74, height=24,
                      font=ctk.CTkFont(size=10, weight="bold"), fg_color="#123820", text_color="#00FF66",
                      hover_color=BRAND_HOVER,
-                     command=lambda: self._enhance_prompt_with_llm("img2img"))
-        i_enh_btn.pack(side="left", padx=(6, 0))
-        ToolTip(i_enh_btn, *TOOLTIPS["Enhance Prompt"])
+                     command=lambda: self._enhance_prompt_with_llm("img2img")).pack(side="left", padx=(6, 0))
 
-        i_rehyd_btn = ctk.CTkButton(ihist_row, text="💧 Re-Hydrate", width=82, height=24,
+        ctk.CTkButton(ihist_row, text="💧 Re-Hydrate", width=82, height=24,
                      font=ctk.CTkFont(size=10), fg_color=BG_CARD_ALT, text_color=TEXT,
                      hover_color=BRAND_HOVER,
-                     command=lambda: self._rehydrate_from_image())
-        i_rehyd_btn.pack(side="left", padx=(6, 0))
-        ToolTip(i_rehyd_btn, *TOOLTIPS["Rehydrate"])
+                     command=lambda: self._rehydrate_from_image()).pack(side="left", padx=(6, 0))
 
         # share the same history list as txt2img
         ctk.CTkButton(ihist_row, text="Refresh", width=70, height=24,
@@ -3976,7 +3592,7 @@ class ComfyUIApp:
                               font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                               progress_color=ACCENT2, button_color=TEXT)
         adaln.grid(row=r, column=0, padx=10, pady=(4, 2), sticky="w")
-        ToolTip(adaln, *TOOLTIPS["AdaLN Cache"])
+        ToolTip(adaln, "Pre-bakes AdaLN modulations and skips AdaLN weights during sampling. Faster, tiny quality trade.")
         r += 1
 
         self.video_spectrum_var = ctk.BooleanVar(value=False)
@@ -3984,7 +3600,7 @@ class ComfyUIApp:
                              font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                              progress_color=ACCENT2, button_color=TEXT)
         spec.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
-        ToolTip(spec, *TOOLTIPS["Spectrum"])
+        ToolTip(spec, "Uses the native (Spectrum-compatible) sampler that threads the (video,audio) latent through apply_model so Comfy Spectrum caches DiT states. Requires ComfyUI-Spectrum-MiniMax-H3 installed.")
         r += 1
 
         self.video_teacache_var = ctk.BooleanVar(value=True)
@@ -3992,7 +3608,7 @@ class ComfyUIApp:
                            font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                            progress_color=ACCENT2, button_color=TEXT)
         tc.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
-        ToolTip(tc, *TOOLTIPS["TeaCache"])
+        ToolTip(tc, "Skips near-identical DiT steps. ~10% speedup, minimal quality loss.")
         r += 1
 
         self.video_blockswap_var = ctk.BooleanVar(value=True)
@@ -4000,7 +3616,7 @@ class ComfyUIApp:
                            font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                            progress_color=ACCENT2, button_color=TEXT)
         bs.grid(row=r, column=0, padx=10, pady=(2, 6), sticky="w")
-        ToolTip(bs, *TOOLTIPS["BlockSwap"])
+        ToolTip(bs, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM. Prevents OOM.")
         r += 1
 
         # Negative prompt
@@ -4370,35 +3986,31 @@ class ComfyUIApp:
 
         # Toggles
         self.v2v_adaln_var = ctk.BooleanVar(value=False)
-        v2v_adaln = ctk.CTkSwitch(sf, text="AdaLN Cache (faster)", variable=self.v2v_adaln_var,
-                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                                  progress_color=ACCENT2, button_color=TEXT)
-        v2v_adaln.grid(row=r, column=0, padx=10, pady=(4, 2), sticky="w")
-        ToolTip(v2v_adaln, *TOOLTIPS["AdaLN Cache"])
+        ctk.CTkSwitch(sf, text="AdaLN Cache (faster)", variable=self.v2v_adaln_var,
+                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                      progress_color=ACCENT2, button_color=TEXT).grid(row=r, column=0, padx=10, pady=(4, 2), sticky="w")
         r += 1
 
         self.v2v_spectrum_var = ctk.BooleanVar(value=False)
         sp_switch = ctk.CTkSwitch(sf, text="Spectrum (native cache path)", variable=self.v2v_spectrum_var,
-                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                                  progress_color=ACCENT2, button_color=TEXT)
+                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                      progress_color=ACCENT2, button_color=TEXT)
         sp_switch.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
-        ToolTip(sp_switch, *TOOLTIPS["Spectrum"])
+        ToolTip(sp_switch, "Native Spectrum sampler path (requires ComfyUI-Spectrum-MiniMax-H3).")
         r += 1
 
         self.v2v_teacache_var = ctk.BooleanVar(value=True)
-        tc_switch = ctk.CTkSwitch(sf, text="TeaCache", variable=self.v2v_teacache_var,
-                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                                  progress_color=ACCENT2, button_color=TEXT)
-        tc_switch.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
-        ToolTip(tc_switch, *TOOLTIPS["TeaCache"])
+        ctk.CTkSwitch(sf, text="TeaCache", variable=self.v2v_teacache_var,
+                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                      progress_color=ACCENT2, button_color=TEXT).grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
         r += 1
 
         self.v2v_blockswap_var = ctk.BooleanVar(value=True)
         bs_switch = ctk.CTkSwitch(sf, text="BlockSwap (8GB VRAM)", variable=self.v2v_blockswap_var,
-                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                                  progress_color=ACCENT2, button_color=TEXT)
+                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                      progress_color=ACCENT2, button_color=TEXT)
         bs_switch.grid(row=r, column=0, padx=10, pady=(2, 6), sticky="w")
-        ToolTip(bs_switch, *TOOLTIPS["BlockSwap"])
+        ToolTip(bs_switch, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM.")
         r += 1
 
         self.v2vgen = ctk.CTkButton(sf, text="⚡ Generate Video to Video  (Ctrl+E)", width=260, font=self.FONT_NORMAL_BOLD,
@@ -5790,23 +5402,15 @@ class ComfyUIApp:
             logging.error("switch_tab error: %s", e)
 
     def _update_tab_button_colors(self):
-        """Ensure active tab has black text (#000000) on neon green BRAND with instant delta updates."""
+        """Ensure active tab has black text (#000000) on neon green BRAND for maximum readability."""
         try:
             if hasattr(self, "tabview") and hasattr(self.tabview, "_segmented_button"):
                 cur = self.tabview.get()
-                prev = getattr(self, "_prev_tab_color_name", None)
-                if prev == cur:
-                    return
-                self._prev_tab_color_name = cur
-                buttons = self.tabview._segmented_button._buttons_dict
-                if not hasattr(self, "_font_tab_bold"):
-                    self._font_tab_bold = ctk.CTkFont(family="Consolas", size=11, weight="bold")
-                    self._font_tab_normal = ctk.CTkFont(family="Consolas", size=11, weight="normal")
-                for name, btn in buttons.items():
+                for name, btn in self.tabview._segmented_button._buttons_dict.items():
                     if name == cur:
-                        btn.configure(text_color="#000000", font=self._font_tab_bold)
-                    elif prev is None or name == prev:
-                        btn.configure(text_color="#CBD5E1", font=self._font_tab_normal)
+                        btn.configure(text_color="#000000", font=ctk.CTkFont(family="Consolas", size=11, weight="bold"))
+                    else:
+                        btn.configure(text_color="#CBD5E1", font=ctk.CTkFont(family="Consolas", size=11, weight="normal"))
         except Exception:
             pass
 
@@ -5978,7 +5582,6 @@ class ComfyUIApp:
                 pass
 
     def _restart_server(self):
-        self._snapshot_session_state()
         self._terminate_backend()
         self._set_status("Restarting backend...")
         threading.Thread(target=self._start_backend, daemon=True).start()
@@ -7000,48 +6603,6 @@ class ComfyUIApp:
         except Exception:
             pass
 
-    def _format_and_clean_prompt(self, tab="txt2img"):
-        """Deduplicate tags, clean extraneous commas, fix spacing, and normalize prompt."""
-        try:
-            p_entry = self.prompt_entry if tab == "txt2img" else getattr(self, "img2img_prompt_entry", self.prompt_entry)
-            if not p_entry:
-                return
-            raw = p_entry.get("1.0", "end-1c").strip()
-            if not raw:
-                self._set_status("No prompt text to format")
-                return
-            
-            # Split by commas or lines, preserving tag structure
-            tags = [t.strip() for t in raw.replace("\n", ", ").split(",") if t.strip()]
-            seen = set()
-            clean_tags = []
-            for t in tags:
-                norm = t.lower()
-                if norm not in seen:
-                    seen.add(norm)
-                    clean_tags.append(t)
-            
-            formatted = ", ".join(clean_tags)
-            p_entry.delete("1.0", "end")
-            p_entry.insert("1.0", formatted)
-            dupes = len(tags) - len(clean_tags)
-            self._set_status(f"✨ Prompt formatted & cleaned ({len(clean_tags)} tags, {dupes} duplicates removed)")
-            self._show_toast("Prompt Formatted", f"Deduplicated {dupes} tags and normalized commas.")
-        except Exception as e:
-            self._set_status(f"Format notice: {e}")
-
-    def _free_vram_memory(self):
-        """Request ComfyUI server to unload models and free CUDA VRAM cache."""
-        def _worker():
-            try:
-                self._set_status("🧹 Freeing GPU VRAM...")
-                requests.post(COMFYUI_URL + "/free", json={"unload_models": True, "free_memory": True}, timeout=3)
-                self._set_status("✔ GPU VRAM freed successfully", level=logging.INFO)
-                self._show_toast("VRAM Cleared", "Unloaded cached model weights & freed VRAM.")
-            except Exception as e:
-                self._set_status(f"VRAM notice: {e}", level=logging.INFO)
-        threading.Thread(target=_worker, daemon=True).start()
-
     def _resolve_dynamic_wildcards(self, text: str) -> str:
         """Resolve {option1|option2|option3} dynamic permutation brackets."""
         if not text or not isinstance(text, str):
@@ -7352,9 +6913,10 @@ class ComfyUIApp:
         self._show_toast("Generation Cancelled", "Active job stopped by user")
 
     def _poll_history(self):
-        """FIX: poll ComfyUI history with retries until done, error, or timeout."""
-        if not self._running or getattr(self, "_is_cancelled", False):
+        """Poll ComfyUI history asynchronously with zero UI thread blocking."""
+        if not self._running or getattr(self, "_is_cancelled", False) or not getattr(self, "_generate_lock", False):
             return
+
         if self._poll_attempts > 600:
             self._set_status("Polling timed out")
             if hasattr(self, "gen_btn") and self.gen_btn and self.gen_btn.winfo_exists():
@@ -7364,54 +6926,63 @@ class ComfyUIApp:
             self._gen_start_time = None
             self._poll_started_at = None
             return
+
         self._poll_attempts += 1
-        try:
-            r = requests.get(COMFYUI_URL + "/history", timeout=5)
-            if r.status_code == 200:
-                hist = r.json()
-                for item_id, item in hist.items():
-                    status = item.get("status", {})
-                    if status.get("completed") and item_id == self.last_prompt_id:
-                        outs = item.get("outputs", {})
-                        for node_id, node_out in outs.items():
-                            # ComfyUI 0.29: the "type":"output" marker lives on each
-                            # image dict INSIDE node_out["images"], NOT on the node itself
-                            # (node_out.get("type") is None). Iterate the images.
-                            for img_data in node_out.get("images", []):
-                                if img_data.get("type") == "output":
-                                    # Video outputs (.mp4) go through _show_video; images via _show_image
-                                    if str(img_data.get("filename", "")).lower().endswith(".mp4"):
-                                        self._show_video(img_data)
-                                    else:
-                                        self._show_image(img_data)
-                            # SaveVideo node emits a "videos" list (H3 video output)
-                            for vid_data in node_out.get("videos", []):
-                                if vid_data.get("type") == "output":
-                                    self._show_video(vid_data)
-                        # QOL: clear the started-time marker on completion
-                        self._poll_started_at = None
-                        return
-                    elif status.get("error") and (item_id == getattr(self, "last_prompt_id", None) or getattr(self, "last_prompt_id", None) is None):
-                        err_msg = status.get("error", {}).get("message", "") if isinstance(status.get("error"), dict) else str(status.get("error", ""))
-                        breadcrumb("gen_error", msg=err_msg[:120])
-                        if "Spectrum" in err_msg or "spectrum" in err_msg.lower():
-                            self._set_status("Spectrum error — retry without Spectrum (spectrum=False)")
-                        else:
-                            self._set_status("Generation error: %s" % err_msg[:60])
-                            self._show_toast("Generation Error", err_msg[:120], error=True)
-                        if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
-                            self.gen_btn.configure(text="⚡ GENERATE (CTRL+E)", state="normal", fg_color=BRAND, hover_color=BRAND_HOVER, text_color="#001408", command=self._start_generate)
-                        self._reset_video_buttons()
-                        self._generate_lock = False
-                        self._gen_start_time = None
-                        self._poll_started_at = None
-                        return
-                    # QOL: update ETA while job is still running
-                    self._update_eta(status, item_id, status.get("exec_info"))
-        except Exception:
-            pass
-        if self._running:
-            self.root.after(500, self._poll_history)
+
+        def _worker():
+            try:
+                r = requests.get(COMFYUI_URL + "/history", timeout=3)
+                if r.status_code == 200:
+                    hist = r.json()
+                    for item_id, item in hist.items():
+                        status = item.get("status", {})
+                        if status.get("completed") and item_id == self.last_prompt_id:
+                            outs = item.get("outputs", {})
+                            def _handle_completed(outputs=outs):
+                                for node_id, node_out in outputs.items():
+                                    for img_data in node_out.get("images", []):
+                                        if img_data.get("type") == "output":
+                                            if str(img_data.get("filename", "")).lower().endswith(".mp4"):
+                                                self._show_video(img_data)
+                                            else:
+                                                self._show_image(img_data)
+                                    for vid_data in node_out.get("videos", []):
+                                        if vid_data.get("type") == "output":
+                                            self._show_video(vid_data)
+                                self._poll_started_at = None
+                            if hasattr(self, "root") and self.root:
+                                self.root.after(0, _handle_completed)
+                            return
+                        elif status.get("error") and (item_id == getattr(self, "last_prompt_id", None) or getattr(self, "last_prompt_id", None) is None):
+                            err_msg = status.get("error", {}).get("message", "") if isinstance(status.get("error"), dict) else str(status.get("error", ""))
+                            breadcrumb("gen_error", msg=err_msg[:120])
+                            def _handle_error(msg=err_msg):
+                                if "Spectrum" in msg or "spectrum" in msg.lower():
+                                    self._set_status("Spectrum error — retry without Spectrum (spectrum=False)")
+                                else:
+                                    self._set_status("Generation error: %s" % msg[:60])
+                                    self._show_toast("Generation Error", msg[:120], error=True)
+                                if hasattr(self, 'gen_btn') and self.gen_btn and self.gen_btn.winfo_exists():
+                                    self.gen_btn.configure(text="⚡ GENERATE (CTRL+E)", state="normal", fg_color=BRAND, hover_color=BRAND_HOVER, text_color="#001408", command=self._start_generate)
+                                self._reset_video_buttons()
+                                self._generate_lock = False
+                                self._gen_start_time = None
+                                self._poll_started_at = None
+                            if hasattr(self, "root") and self.root:
+                                self.root.after(0, _handle_error)
+                            return
+                        def _handle_eta(st=status, iid=item_id, einfo=status.get("exec_info")):
+                            self._update_eta(st, iid, einfo)
+                        if hasattr(self, "root") and self.root:
+                            self.root.after(0, _handle_eta)
+            except Exception:
+                pass
+
+            if self._running and getattr(self, "_generate_lock", False):
+                if hasattr(self, "root") and self.root:
+                    self.root.after(500, self._poll_history)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _update_eta(self, status, item_id, exec_info):
         """QOL: Display an estimated time remaining while a job is running.
@@ -7880,42 +7451,25 @@ class ComfyUIApp:
     def _validate_geometry_bounds(self, geom_str: str) -> str:
         """Ensure restored window position is within visible multi-monitor screen bounds."""
         try:
-            sw = self.root.winfo_screenwidth()
-            sh = self.root.winfo_screenheight()
-            target_w = min(1280, max(880, int(sw * 0.85)))
-            target_h = min(900, max(600, int(sh * 0.85)))
-
             import re
-            m = re.match(r"^(\d+)x(\d+)(?:([+-]\d+)([+-]\d+))?$", str(geom_str).strip())
+            m = re.match(r"^(\d+)x(\d+)([+-]\d+)([+-]\d+)$", str(geom_str).strip())
             if m:
-                w = int(m.group(1))
-                h = int(m.group(2))
-                w = max(880, min(sw, w))
-                h = max(580, min(sh - 60, h))
-                if m.group(3) and m.group(4):
-                    x = int(m.group(3))
-                    y = int(m.group(4))
-                    if x < -50 or x > sw - 100 or y < 0 or y > sh - 100:
-                        x = max(20, (sw - w) // 2)
-                        y = max(20, (sh - h) // 2)
-                    return f"{w}x{h}+{x}+{y}"
-                else:
+                w, h, x, y = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+                sw = self.root.winfo_screenwidth()
+                sh = self.root.winfo_screenheight()
+                # Check if offscreen (negative or way beyond monitor width/height)
+                if x < -50 or x > sw - 100 or y < -50 or y > sh - 100:
                     cx = max(20, (sw - w) // 2)
                     cy = max(20, (sh - h) // 2)
                     return f"{w}x{h}+{cx}+{cy}"
-            cx = max(20, (sw - target_w) // 2)
-            cy = max(20, (sh - target_h) // 2)
-            return f"{target_w}x{target_h}+{cx}+{cy}"
+                return geom_str
+            return "1280x1120"
         except Exception:
-            return "1280x880+50+50"
+            return "1280x1120"
 
     def on_close(self):
         """Clean and comprehensive application shutdown sequence."""
         self._running = False
-        try:
-            self._snapshot_session_state()
-        except Exception:
-            pass
         try:
             if hasattr(self, "root") and self.root and self.root.winfo_exists():
                 geom = self.root.geometry()
@@ -7954,104 +7508,25 @@ class ComfyUIApp:
         except Exception:
             self._force_quit()
 
-    def _snapshot_session_state(self):
-        """Serialize current active prompt, negative prompt, active tab, model, aspect ratio, seed, and sliders to session_restore.json."""
-        try:
-            snapshot = {
-                "active_tab": getattr(self, "current_tab", "txt2img"),
-                "model": self.model_var.get() if hasattr(self, "model_var") else None,
-                "preset": self.preset_var.get() if hasattr(self, "preset_var") else None,
-                "target_engine": self.target_engine_str.get() if hasattr(self, "target_engine_str") else None,
-                "tabs": {}
-            }
-            if hasattr(self, "txt2img_prompt_entry"):
-                snapshot["tabs"]["txt2img"] = {
-                    "prompt": self.txt2img_prompt_entry.get("1.0", "end-1c"),
-                    "neg": self.txt2img_neg_entry.get("1.0", "end-1c"),
-                    "width": self.vars["txt2img"]["width"].get(),
-                    "height": self.vars["txt2img"]["height"].get(),
-                    "steps": self.vars["txt2img"]["steps"].get(),
-                    "cfg": self.vars["txt2img"]["cfg"].get(),
-                    "seed": self.vars["txt2img"]["seed"].get(),
-                    "sampler": self.vars["txt2img"]["sampler"].get(),
-                    "scheduler": self.vars["txt2img"]["scheduler"].get(),
-                    "batch": self.vars["txt2img"]["batch"].get(),
-                }
-            if hasattr(self, "img2img_prompt_entry"):
-                snapshot["tabs"]["img2img"] = {
-                    "prompt": self.img2img_prompt_entry.get("1.0", "end-1c"),
-                    "neg": self.img2img_neg_entry.get("1.0", "end-1c"),
-                    "width": self.vars["img2img"]["width"].get(),
-                    "height": self.vars["img2img"]["height"].get(),
-                    "steps": self.vars["img2img"]["steps"].get(),
-                    "cfg": self.vars["img2img"]["cfg"].get(),
-                    "seed": self.vars["img2img"]["seed"].get(),
-                    "denoise": self.vars["img2img"]["denoise"].get(),
-                    "sampler": self.vars["img2img"]["sampler"].get(),
-                    "scheduler": self.vars["img2img"]["scheduler"].get(),
-                }
-            session_file = os.path.join(BASE_DIR, "session_restore.json")
-            with open(session_file, "w", encoding="utf-8") as f:
-                json.dump(snapshot, f, indent=2)
-            logging.info("Workspace session snapshot persisted to %s", session_file)
-        except Exception as e:
-            logging.warning("Session snapshot warning: %s", e)
-
-    def _restore_session_state(self):
-        """Restore active session inputs from session_restore.json if present."""
-        try:
-            session_file = os.path.join(BASE_DIR, "session_restore.json")
-            if not os.path.isfile(session_file):
-                return
-            with open(session_file, "r", encoding="utf-8") as f:
-                snapshot = json.load(f)
-            
-            # Restore model / preset / target engine
-            if snapshot.get("model") and hasattr(self, "model_var") and snapshot["model"] in getattr(self, "_available_models", []):
-                self.model_var.set(snapshot["model"])
-            if snapshot.get("preset") and hasattr(self, "preset_var") and snapshot["preset"] in PRESETS:
-                self.preset_var.set(snapshot["preset"])
-            if snapshot.get("target_engine") and hasattr(self, "target_engine_str"):
-                self.target_engine_str.set(snapshot["target_engine"])
-
-            # Restore tab parameters
-            t_data = snapshot.get("tabs", {})
-            if "txt2img" in t_data and hasattr(self, "txt2img_prompt_entry"):
-                d = t_data["txt2img"]
-                if d.get("prompt"):
-                    self.txt2img_prompt_entry.delete("1.0", "end")
-                    self.txt2img_prompt_entry.insert("1.0", d["prompt"])
-                if d.get("neg"):
-                    self.txt2img_neg_entry.delete("1.0", "end")
-                    self.txt2img_neg_entry.insert("1.0", d["neg"])
-                for k in ("width", "height", "steps", "cfg", "seed", "sampler", "scheduler", "batch"):
-                    if k in d and k in self.vars["txt2img"]:
-                        self.vars["txt2img"][k].set(str(d[k]))
-
-            if "img2img" in t_data and hasattr(self, "img2img_prompt_entry"):
-                d = t_data["img2img"]
-                if d.get("prompt"):
-                    self.img2img_prompt_entry.delete("1.0", "end")
-                    self.img2img_prompt_entry.insert("1.0", d["prompt"])
-                if d.get("neg"):
-                    self.img2img_neg_entry.delete("1.0", "end")
-                    self.img2img_neg_entry.insert("1.0", d["neg"])
-                for k in ("width", "height", "steps", "cfg", "seed", "denoise", "sampler", "scheduler"):
-                    if k in d and k in self.vars["img2img"]:
-                        self.vars["img2img"][k].set(str(d[k]))
-
-            # Clean up snapshot after successful restoration
-            try:
-                os.remove(session_file)
-            except Exception:
-                pass
-            logging.info("Workspace session restored successfully from snapshot")
-        except Exception as e:
-            logging.warning("Session restore warning: %s", e)
-
     def _restore_config(self):
-        """Restore saved window geometry with off-screen protection and font size."""
+        """Restore saved window geometry with off-screen protection, font size, and UI scaling."""
         try:
+            saved_geom = None
+            if hasattr(self, "config_manager") and self.config_manager.settings.get("window_geometry"):
+                saved_geom = self.config_manager.settings.get("window_geometry")
+            path = _get_config_path()
+            if not saved_geom and os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        cfg = json.load(f)
+                    saved_geom = cfg.get("geometry")
+                except Exception:
+                    pass
+
+            if saved_geom and isinstance(saved_geom, str) and "x" in saved_geom:
+                safe_geom = self._validate_geometry_bounds(saved_geom)
+                self.root.geometry(safe_geom)
+
             # QoL: honor persisted Text Size for prompt/negative boxes
             try:
                 _tsz = getattr(self, "text_size_str", None)
@@ -8059,6 +7534,14 @@ class ComfyUIApp:
                     _size = {"Small": 11, "Medium": 13, "Large": 15}.get(_tsz.get(), 13)
                     self.FONT_TEXT.configure(family="Segoe UI", size=_size)
                     self.FONT_TEXT_BOLD.configure(family="Segoe UI", size=_size, weight="bold")
+            except Exception:
+                pass
+
+            # Restore persisted UI scaling
+            try:
+                saved_scale = self.config_manager.settings.get("ui_scaling") if hasattr(self, "config_manager") else None
+                if saved_scale and saved_scale != "100%":
+                    self._set_scaling(saved_scale)
             except Exception:
                 pass
         except Exception:
@@ -8089,22 +7572,19 @@ class ComfyUIApp:
         self._paint_header()
 
     def _paint_header(self):
-        """Paint the header gradient background cleanly with resolution memoization."""
-        if not getattr(self, "_running", True):
+        """Paint the header gradient background cleanly."""
+        if not self._running:
             return
         try:
             w = max(self.root.winfo_width() - 230, 400)
             h = 56
-            if getattr(self, "_last_header_w", None) == w and hasattr(self, "_header_img") and self._header_img:
-                return
-            self._last_header_w = w
             c0 = (20, 20, 24)
             c1 = (35, 35, 42)
             grad = make_gradient(w, h, c0, c1, angle=90)
-            ctk_img = ctk.CTkImage(light_image=grad, dark_image=grad, size=(w, h))
-            self._header_img = ctk_img
+            photo = ImageTk.PhotoImage(grad)
+            self._header_img = photo
             if hasattr(self, "header") and self.header and getattr(self.header, "winfo_exists", lambda: True)():
-                self.header.configure(image=ctk_img)
+                self.header.configure(image=photo)
         except Exception:
             pass
 
@@ -8204,19 +7684,17 @@ class ComfyUIApp:
             cmd.grid_columnconfigure(i, weight=1)
 
         btns = [
-            ("⚡ Open Output", lambda: self._open_dir(OUTPUT_DIR), "Open Folder"),
-            ("⟳ Restart (Ctrl+R)", self._restart_server, "Restart Server"),
-            ("📄 View Log", self._view_log, "View Log"),
-            ("💾 Save History", self._save_history_simple, "Save History"),
+            ("⚡ Open Output", lambda: self._open_dir(OUTPUT_DIR)),
+            ("⟳ Restart (Ctrl+R)", self._restart_server),
+            ("📄 View Log", self._view_log),
+            ("💾 Save History", self._save_history_simple),
         ]
-        for i, (txt, fn, tip_key) in enumerate(btns):
+        for i, (txt, fn) in enumerate(btns):
             b = ctk.CTkButton(cmd, text=txt, height=30, corner_radius=6,
                               fg_color=BG_CARD, border_width=1, border_color=BORDER_MUTED,
                               text_color=TEXT, font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
                               hover_color=BRAND_HOVER, command=fn)
             b.grid(row=0, column=i, padx=3, pady=2, sticky="nsew")
-            if tip_key in TOOLTIPS:
-                ToolTip(b, *TOOLTIPS[tip_key])
 
         # Snug Status Console Bar directly below Action Buttons (Eliminates dead space gap)
         status_container = ctk.CTkFrame(self.top, height=28, fg_color=BG_CARD, border_width=1, border_color=BORDER_MUTED, corner_radius=6)
@@ -8279,10 +7757,10 @@ class ComfyUIApp:
                 user32.EnumWindows(ENUMPROC(cb), 0)
                 if found:
                     return True
-            import psutil
-            for p in psutil.process_iter(["name", "cmdline"]):
-                cmd = " ".join(p.info.get("cmdline") or []).lower()
-                if "hermes_app.py" in cmd:
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.04)
+                if s.connect_ex(("127.0.0.1", 5119)) == 0:
                     return True
         except Exception:
             pass
@@ -8891,17 +8369,15 @@ class ComfyUIApp:
                         status_lbl.configure(text=msg, text_color=ACCENT_CYAN),
                         prog_bar.set(pct)
                     ))
-                res = github_updater.apply_script_update(repo=repo_var.get(), branch="main", progress_callback=_prog)
+                res = github_updater.apply_script_update(repo=repo_var.get(), branch="master" if "ComfyUIX" in repo_var.get() else "main", progress_callback=_prog)
                 def _done():
                     if res.get("success"):
-                        self._snapshot_session_state()
-                        status_lbl.configure(text=f"✅ Live Update Complete! ({len(res.get('files_updated', []))} files updated). Session saved.", text_color="#00FF66")
-                        update_btn.configure(state="normal", text="🔄 Restart App (Restore Session)",
-                                             command=lambda: github_updater.restart_app_with_session(self))
-                        self._set_status("GitHub Live Update Complete — Workspace Preserved!")
+                        status_lbl.configure(text=f"✅ Live Update Complete! ({len(res.get('files_updated', []))} files updated). Hit '⚡ Hot Reload UI' or restart app.", text_color="#00FF66")
+                        update_btn.configure(state="normal", text="✅ Up to Date")
+                        self._set_status("GitHub Live Update Complete!")
                     else:
                         status_lbl.configure(text="Update failed. Check network connection.", text_color="#FFAAAA")
-                        update_btn.configure(state="normal", text="⟳ Retry Update", command=_do_update)
+                        update_btn.configure(state="normal", text="⟳ Retry Update")
                 self.root.after(0, _done)
             threading.Thread(target=_worker, daemon=True).start()
 
@@ -9351,7 +8827,7 @@ class ComfyUIApp:
 
         # 3. Hermes LLM Proxy telemetry on :5119
         try:
-            r = requests.get("http://127.0.0.1:5119/admin/telemetry", timeout=1.0)
+            r = requests.get("http://127.0.0.1:5119/admin/telemetry", timeout=0.15)
             if r.status_code == 200:
                 h_data = r.json()
                 tps = h_data.get("tok_per_sec", 0.0)
@@ -9426,17 +8902,13 @@ class ComfyUIApp:
                     elif data["is_gpu"]:
                         self.telemetry_loaded_lbl.configure(text=f"Ready • {data['vram_total_mb']//1024}GB VRAM", text_color=TEXT_MUTED)
 
-            try:
-                if hasattr(self, "root") and self.root and self.root.winfo_exists():
-                    self.root.after(0, _apply)
-            except Exception:
-                pass
+            self.root.after(0, _apply)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-        # Schedule next tick in 3000ms
+        # Schedule next tick in 1500ms
         try:
-            self.root.after(3000, self._update_telemetry_tick)
+            self.root.after(1500, self._update_telemetry_tick)
         except Exception:
             pass
 
@@ -9463,132 +8935,132 @@ def _crash_hook(exc_type, exc_value, exc_tb):
 
 
 def main():
+    sys.excepthook = _crash_hook
+
+    # ------------------------------------------------------------------
+    # HOT-PATCH / DYNAMIC SCRIPT OVERRIDE LOADER
+    # Allows updating and developing without rebuilding the .exe every time.
+    # ------------------------------------------------------------------
+    if getattr(sys, "frozen", False) and os.environ.get("COMFYUIX_NO_PATCH") != "1" and "--no-patch" not in sys.argv:
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        candidates = [
+            os.path.join(exe_dir, "ComfyUI_App.py"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX", "ComfyUI_App.py"),
+            os.path.join(exe_dir, "app_patch.py"),
+        ]
+        for script_path in candidates:
+            if os.path.isfile(script_path):
+                try:
+                    import importlib.util
+                    os.environ["COMFYUIX_NO_PATCH"] = "1"
+                    spec = importlib.util.spec_from_file_location("__main_patched__", script_path)
+                    if spec and spec.loader:
+                        mod = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(mod)
+                        if hasattr(mod, "main"):
+                            mod.main()
+                            sys.exit(0)
+                except Exception as patch_err:
+                    print(f"Hot-patch loader error: {patch_err} (falling back to bundled)")
+
+    # ------------------------------------------------------------------
+    # DEFENSE-IN-DEPTH: reclaim disk leaked by any PyInstaller temp extraction
+    # (_MEIxxxx dirs in %TEMP%). Onedir no longer forks a bootloader, but if a
+    # previous onefile build left orphans (or any future extraction occurs) we
+    # reap them on launch so they can't accumulate GBs of dead temp data.
+    # ------------------------------------------------------------------
     try:
-        sys.excepthook = _crash_hook
-
-        # ------------------------------------------------------------------
-        # HOT-PATCH / DYNAMIC SCRIPT OVERRIDE LOADER
-        # Allows updating and developing without rebuilding the .exe every time.
-        # ------------------------------------------------------------------
-        if getattr(sys, "frozen", False) and os.environ.get("COMFYUIX_NO_PATCH") != "1" and "--no-patch" not in sys.argv:
-            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-            candidates = [
-                os.path.join(exe_dir, "ComfyUI_App.py"),
-                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "ComfyUIX", "ComfyUI_App.py"),
-                os.path.join(exe_dir, "app_patch.py"),
-            ]
-            for script_path in candidates:
-                if os.path.isfile(script_path):
+        import shutil as _shutil
+        _tmp = os.environ.get("TEMP") or os.environ.get("TMP") or None
+        if _tmp and os.path.isdir(_tmp):
+            for _d in os.listdir(_tmp):
+                if _d.startswith("_MEI") and os.path.isdir(os.path.join(_tmp, _d)):
                     try:
-                        import importlib.util
-                        os.environ["COMFYUIX_NO_PATCH"] = "1"
-                        spec = importlib.util.spec_from_file_location("__main_patched__", script_path)
-                        if spec and spec.loader:
-                            mod = importlib.util.module_from_spec(spec)
-                            spec.loader.exec_module(mod)
-                            if hasattr(mod, "main"):
-                                mod.main()
-                                sys.exit(0)
-                    except Exception as patch_err:
-                        print(f"Hot-patch loader error: {patch_err} (falling back to bundled)")
+                        _shutil.rmtree(os.path.join(_tmp, _d), ignore_errors=True)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
-        # ------------------------------------------------------------------
-        # SELF-HEALING SINGLE-INSTANCE GUARD
-        # If another instance is running AND has a visible window, bring it
-        # to front and exit. If a background process is holding the mutex
-        # without a window (zombie), do NOT exit; continue and open the GUI.
-        # Excludes IDEs, code editors, terminals, browsers, and Antigravity.
-        # ------------------------------------------------------------------
-        _target_hwnd = None
-        if os.name == "nt":
-            try:
-                import ctypes, ctypes.wintypes
-                _user32 = ctypes.windll.user32
-                _my_pid = os.getpid()
+    # ------------------------------------------------------------------
+    # SELF-HEALING SINGLE-INSTANCE GUARD
+    # If another instance is running AND has a visible window, bring it
+    # to front and exit. If a background process is holding the mutex
+    # without a window (zombie), do NOT exit; continue and open the GUI.
+    # Excludes IDEs, code editors, terminals, browsers, and Antigravity.
+    # ------------------------------------------------------------------
+    _target_hwnd = None
+    if os.name == "nt":
+        try:
+            import ctypes, ctypes.wintypes
+            _user32 = ctypes.windll.user32
+            _my_pid = os.getpid()
 
-                def _find_active_win(hwnd, _):
-                    nonlocal _target_hwnd
-                    if not _user32.IsWindowVisible(hwnd):
-                        return True
-                    
-                    # Check process ID - skip our own process
-                    _win_pid = ctypes.wintypes.DWORD()
-                    _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(_win_pid))
-                    if _win_pid.value == _my_pid:
-                        return True
-
-                    # Must be a visible top-level window
-                    if not _user32.IsWindowVisible(hwnd):
-                        return True
-
-                    # Check window class - Tkinter root is 'Tk' or 'TkTopLevel'
-                    _class_buf = ctypes.create_unicode_buffer(256)
-                    _user32.GetClassNameW(hwnd, _class_buf, 256)
-                    _win_class = _class_buf.value
-                    if not (_win_class.startswith("Tk") or _win_class.startswith("SunAwt")):
-                        return True
-
-                    # Check window title
-                    length = _user32.GetWindowTextLengthW(hwnd)
-                    if length > 0:
-                        _buf = ctypes.create_unicode_buffer(length + 1)
-                        _user32.GetWindowTextW(hwnd, _buf, length + 1)
-                        _title = _buf.value
-
-                        # Exclude IDEs, editors, terminals, browsers, Antigravity
-                        _lower_title = _title.lower()
-                        _excluded_terms = ["antigravity", "visual studio", "code", "cursor", "sublime", 
-                                           "notepad", "terminal", "powershell", "cmd.exe", "chrome", "brave", "firefox", "edge"]
-                        if any(term in _lower_title for term in _excluded_terms):
-                            return True
-
-                        # Must match ComfyUIX window title signature
-                        if _title.startswith("ComfyUIX") or "matrix edition" in _lower_title or "comfyui studio" in _lower_title:
-                            _target_hwnd = hwnd
-                            return False
+            def _find_active_win(hwnd, _):
+                nonlocal _target_hwnd
+                if not _user32.IsWindowVisible(hwnd):
+                    return True
+                
+                # Check process ID - skip our own process
+                _win_pid = ctypes.wintypes.DWORD()
+                _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(_win_pid))
+                if _win_pid.value == _my_pid:
                     return True
 
-                _EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
-                _user32.EnumWindows(_EnumProc(_find_active_win), 0)
-            except Exception:
-                _target_hwnd = None
+                # Check window class - Tkinter root is 'Tk' or 'TkTopLevel'
+                _class_buf = ctypes.create_unicode_buffer(256)
+                _user32.GetClassNameW(hwnd, _class_buf, 256)
+                _win_class = _class_buf.value
+                if not (_win_class.startswith("Tk") or _win_class.startswith("SunAwt")):
+                    return True
 
-        if _target_hwnd:
-            try:
-                import ctypes
-                _user32 = ctypes.windll.user32
-                if _user32.IsWindowVisible(_target_hwnd):
-                    _user32.ShowWindow(_target_hwnd, 9)  # SW_RESTORE
-                    _user32.SetForegroundWindow(_target_hwnd)
-                    logging.info("ComfyUIX is already open -> brought existing window to front.")
-                    sys.exit(0)
-            except Exception:
-                pass
+                # Check window title
+                length = _user32.GetWindowTextLengthW(hwnd)
+                if length > 0:
+                    _buf = ctypes.create_unicode_buffer(length + 1)
+                    _user32.GetWindowTextW(hwnd, _buf, length + 1)
+                    _title = _buf.value
 
-        _reassert_tcl_tk_env()
-        root = ctk.CTk()
-        root.title("ComfyUIX")
-        root.configure(bg="#141416")
-        app = ComfyUIApp(root)
-        root.title(app._stamped_title())
-        root.protocol("WM_DELETE_WINDOW", app.on_close)
-        root.after(100, lambda: app._paint_header())
-        root.after(500, lambda: app._start_backend_threads())
-        root.mainloop()
-    except Exception as fatal_e:
-        tb_str = traceback.format_exc()
-        try:
-            os.makedirs(LOG_DIR, exist_ok=True)
-            with open(os.path.join(LOG_DIR, "launch_fatal.log"), "w", encoding="utf-8") as lf:
-                lf.write(tb_str)
+                    # Exclude IDEs, editors, terminals, browsers, Antigravity
+                    _lower_title = _title.lower()
+                    _excluded_terms = ["antigravity", "visual studio", "code", "cursor", "sublime", 
+                                       "notepad", "terminal", "powershell", "cmd.exe", "chrome", "brave", "firefox", "edge"]
+                    if any(term in _lower_title for term in _excluded_terms):
+                        return True
+
+                    # Must match ComfyUIX window title signature
+                    if _title.startswith("ComfyUIX") or "matrix edition" in _lower_title or "comfyui studio" in _lower_title:
+                        _target_hwnd = hwnd
+                        return False
+                return True
+
+            _EnumProc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+            _user32.EnumWindows(_EnumProc(_find_active_win), 0)
         except Exception:
-            pass
+            _target_hwnd = None
+
+    if _target_hwnd:
         try:
             import ctypes
-            ctypes.windll.user32.MessageBoxW(0, f"ComfyUIX failed to launch:\n\n{fatal_e}\n\nCheck logs/launch_fatal.log for details.", "ComfyUIX Startup Error", 0x10)
+            _user32 = ctypes.windll.user32
+            _user32.ShowWindow(_target_hwnd, 9)  # SW_RESTORE
+            _user32.SetForegroundWindow(_target_hwnd)
+            print("ComfyUIX is already open -> brought existing window to front.")
+            sys.exit(0)
         except Exception:
             pass
-        logging.error("Fatal startup error: %s", tb_str)
+
+    _reassert_tcl_tk_env()
+    root = ctk.CTk()
+    root.title("ComfyUIX")
+    root.configure(bg="#141416")
+    app = ComfyUIApp(root)
+    root.title(app._stamped_title())
+    root.protocol("WM_DELETE_WINDOW", app.on_close)
+    root.after(100, lambda: app._paint_header())
+    # Backend threads scheduled ONCE here (the redundant __init__ schedule was removed).
+    root.after(500, lambda: app._start_backend_threads())
+    root.mainloop()
 
 
 if __name__ == "__main__":

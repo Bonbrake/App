@@ -1,7 +1,7 @@
 # ComfyUIX Matrix Edition v5.0 — Master Specification, Architecture & Deep Gap Roadmap
 
 [![Version](https://img.shields.io/badge/version-5.0.0--Matrix-00FF66.svg)](https://github.com/Bonbrake/ComfyUIX)
-[![QA Status](https://img.shields.io/badge/QA%20Tests-146%2F146%20PASSED-00FF66.svg)](https://github.com/Bonbrake/ComfyUIX)
+[![QA Status](https://img.shields.io/badge/QA%20Tests-110%2F110%20PASSED-00FF66.svg)](https://github.com/Bonbrake/ComfyUIX)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue.svg)](https://github.com/Bonbrake/ComfyUIX)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -83,10 +83,9 @@ Generates 5 synchronized physical material channels from any 2D albedo texture:
 
 ## 4. Verification & Testing Methodology
 
-The codebase is validated against **146 automated test assertions**:
-1. **Primary Functional QA Suite** (`qa_suite.py`): 58 / 58 PASSED (100%)
-2. **Deep Multi-Vector Stress Suite** (`multi_angle_debug.py`): 88 / 88 PASSED (100%)
-Total: **146 / 146 PASSED (100% Pass Rate)**
+The codebase is validated against **110 automated test assertions**:
+1. **Primary Functional QA Suite** (`qa_suite.py`): 53 / 53 PASSED (100%)
+2. **Deep Multi-Vector Stress Suite** (`multi_angle_debug.py`): 57 / 57 PASSED (100%)
 
 ---
 
@@ -96,9 +95,8 @@ Total: **146 / 146 PASSED (100% Pass Rate)**
 # Run the application from source
 python ComfyUI_App.py
 
-# Run the automated QA verification suites
+# Run the automated QA verification suite
 python qa_suite.py
-python multi_angle_debug.py
 
 # Build standalone distribution
 pyinstaller --clean -y ComfyUI_Uncensored.spec

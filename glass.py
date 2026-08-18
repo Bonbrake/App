@@ -181,15 +181,9 @@ class MatrixRainCanvas(tk.Canvas):
         self.font_size = font_size
         self.running = False
         self._resize_job = None
-        self._last_canvas_size = None
         self.bind("<Configure>", self._on_resize)
 
     def _on_resize(self, event=None):
-        if event is not None:
-            new_size = (event.width, event.height)
-            if self._last_canvas_size == new_size:
-                return
-            self._last_canvas_size = new_size
         if self._resize_job is not None:
             try:
                 self.after_cancel(self._resize_job)
@@ -242,21 +236,12 @@ class AcrylicBackground:
         self.label = tk.Label(root, bg=bg_color)
         self.label.place(x=0, y=0, relwidth=1, relheight=1)
         self._job = None
-        self._last_size = None
         self._refresh(immediate=True)
         root.bind("<Configure>", self._on_configure)
 
-    def _on_configure(self, e=None):
-        if e is not None:
-            new_size = (e.width, e.height)
-            if self._last_size == new_size:
-                return
-            self._last_size = new_size
+    def _on_configure(self, _e=None):
         if self._job is not None:
-            try:
-                self.root.after_cancel(self._job)
-            except Exception:
-                pass
+            self.root.after_cancel(self._job)
         self._job = self.root.after(400, self._refresh)
 
     def _refresh(self, immediate=False):
