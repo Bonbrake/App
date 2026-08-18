@@ -250,6 +250,9 @@ class AutoHideScrollFrame(ctk.CTkFrame):
         self.inner = ctk.CTkFrame(self._canvas, fg_color="transparent")
         self._win = self._canvas.create_window((0, 0), window=self.inner, anchor="nw")
 
+        self._last_width = None
+        self._scroll_job = None
+
         self.inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>", self._on_canvas_configure)
         self._canvas.bind("<MouseWheel>", self._on_wheel)
@@ -275,12 +278,22 @@ class AutoHideScrollFrame(ctk.CTkFrame):
 
     # ---- geometry ----
     def _on_inner_configure(self, event=None):
-        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        self._bind_mousewheel_recursive(self.inner)
+        if self._scroll_job is None:
+            self._scroll_job = self.after(16, self._update_scrollregion)
 
     def _on_canvas_configure(self, event):
-        self._canvas.itemconfigure(self._win, width=event.width)
-        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        if self._last_width != event.width:
+            self._last_width = event.width
+            self._canvas.itemconfigure(self._win, width=event.width)
+            if self._scroll_job is None:
+                self._scroll_job = self.after(16, self._update_scrollregion)
+
+    def _update_scrollregion(self):
+        self._scroll_job = None
+        try:
+            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        except Exception:
+            pass
 
     def _bind_mousewheel_recursive(self, widget):
         """Recursively route mousewheel events from all sliders/widgets to parent scrolling."""
@@ -3868,7 +3881,7 @@ class ComfyUIApp:
                               font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                               progress_color=ACCENT2, button_color=TEXT)
         adaln.grid(row=r, column=0, padx=10, pady=(4, 2), sticky="w")
-        ToolTip(adaln, "Pre-bakes AdaLN modulations and skips AdaLN weights during sampling. Faster, tiny quality trade.")
+        ToolTip(adaln, *TOOLTIPS["AdaLN Cache"])
         r += 1
 
         self.video_spectrum_var = ctk.BooleanVar(value=False)
@@ -3876,7 +3889,7 @@ class ComfyUIApp:
                              font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                              progress_color=ACCENT2, button_color=TEXT)
         spec.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
-        ToolTip(spec, "Uses the native (Spectrum-compatible) sampler that threads the (video,audio) latent through apply_model so Comfy Spectrum caches DiT states. Requires ComfyUI-Spectrum-MiniMax-H3 installed.")
+        ToolTip(spec, *TOOLTIPS["Spectrum"])
         r += 1
 
         self.video_teacache_var = ctk.BooleanVar(value=True)
@@ -3884,7 +3897,7 @@ class ComfyUIApp:
                            font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                            progress_color=ACCENT2, button_color=TEXT)
         tc.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
-        ToolTip(tc, "Skips near-identical DiT steps. ~10% speedup, minimal quality loss.")
+        ToolTip(tc, *TOOLTIPS["TeaCache"])
         r += 1
 
         self.video_blockswap_var = ctk.BooleanVar(value=True)
@@ -3892,7 +3905,7 @@ class ComfyUIApp:
                            font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                            progress_color=ACCENT2, button_color=TEXT)
         bs.grid(row=r, column=0, padx=10, pady=(2, 6), sticky="w")
-        ToolTip(bs, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM. Prevents OOM.")
+        ToolTip(bs, *TOOLTIPS["BlockSwap"])
         r += 1
 
         # Negative prompt
@@ -4262,31 +4275,35 @@ class ComfyUIApp:
 
         # Toggles
         self.v2v_adaln_var = ctk.BooleanVar(value=False)
-        ctk.CTkSwitch(sf, text="AdaLN Cache (faster)", variable=self.v2v_adaln_var,
-                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                      progress_color=ACCENT2, button_color=TEXT).grid(row=r, column=0, padx=10, pady=(4, 2), sticky="w")
+        v2v_adaln = ctk.CTkSwitch(sf, text="AdaLN Cache (faster)", variable=self.v2v_adaln_var,
+                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                                  progress_color=ACCENT2, button_color=TEXT)
+        v2v_adaln.grid(row=r, column=0, padx=10, pady=(4, 2), sticky="w")
+        ToolTip(v2v_adaln, *TOOLTIPS["AdaLN Cache"])
         r += 1
 
         self.v2v_spectrum_var = ctk.BooleanVar(value=False)
         sp_switch = ctk.CTkSwitch(sf, text="Spectrum (native cache path)", variable=self.v2v_spectrum_var,
-                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                      progress_color=ACCENT2, button_color=TEXT)
+                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                                  progress_color=ACCENT2, button_color=TEXT)
         sp_switch.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
-        ToolTip(sp_switch, "Native Spectrum sampler path (requires ComfyUI-Spectrum-MiniMax-H3).")
+        ToolTip(sp_switch, *TOOLTIPS["Spectrum"])
         r += 1
 
         self.v2v_teacache_var = ctk.BooleanVar(value=True)
-        ctk.CTkSwitch(sf, text="TeaCache", variable=self.v2v_teacache_var,
-                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                      progress_color=ACCENT2, button_color=TEXT).grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
+        tc_switch = ctk.CTkSwitch(sf, text="TeaCache", variable=self.v2v_teacache_var,
+                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                                  progress_color=ACCENT2, button_color=TEXT)
+        tc_switch.grid(row=r, column=0, padx=10, pady=(2, 2), sticky="w")
+        ToolTip(tc_switch, *TOOLTIPS["TeaCache"])
         r += 1
 
         self.v2v_blockswap_var = ctk.BooleanVar(value=True)
         bs_switch = ctk.CTkSwitch(sf, text="BlockSwap (8GB VRAM)", variable=self.v2v_blockswap_var,
-                      font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
-                      progress_color=ACCENT2, button_color=TEXT)
+                                  font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
+                                  progress_color=ACCENT2, button_color=TEXT)
         bs_switch.grid(row=r, column=0, padx=10, pady=(2, 6), sticky="w")
-        ToolTip(bs_switch, "Offloads DiT layers to RAM. REQUIRED for 8GB VRAM.")
+        ToolTip(bs_switch, *TOOLTIPS["BlockSwap"])
         r += 1
 
         self.v2vgen = ctk.CTkButton(sf, text="⚡ Generate Video to Video  (Ctrl+E)", width=260, font=self.FONT_NORMAL_BOLD,
@@ -8081,17 +8098,19 @@ class ComfyUIApp:
             cmd.grid_columnconfigure(i, weight=1)
 
         btns = [
-            ("⚡ Open Output", lambda: self._open_dir(OUTPUT_DIR)),
-            ("⟳ Restart (Ctrl+R)", self._restart_server),
-            ("📄 View Log", self._view_log),
-            ("💾 Save History", self._save_history_simple),
+            ("⚡ Open Output", lambda: self._open_dir(OUTPUT_DIR), "Open Folder"),
+            ("⟳ Restart (Ctrl+R)", self._restart_server, "Restart Server"),
+            ("📄 View Log", self._view_log, "View Log"),
+            ("💾 Save History", self._save_history_simple, "Save History"),
         ]
-        for i, (txt, fn) in enumerate(btns):
+        for i, (txt, fn, tip_key) in enumerate(btns):
             b = ctk.CTkButton(cmd, text=txt, height=30, corner_radius=6,
                               fg_color=BG_CARD, border_width=1, border_color=BORDER_MUTED,
                               text_color=TEXT, font=ctk.CTkFont(family="Consolas", size=10, weight="bold"),
                               hover_color=BRAND_HOVER, command=fn)
             b.grid(row=0, column=i, padx=3, pady=2, sticky="nsew")
+            if tip_key in TOOLTIPS:
+                ToolTip(b, *TOOLTIPS[tip_key])
 
         # Snug Status Console Bar directly below Action Buttons (Eliminates dead space gap)
         status_container = ctk.CTkFrame(self.top, height=28, fg_color=BG_CARD, border_width=1, border_color=BORDER_MUTED, corner_radius=6)
@@ -9301,7 +9320,11 @@ class ComfyUIApp:
                     elif data["is_gpu"]:
                         self.telemetry_loaded_lbl.configure(text=f"Ready • {data['vram_total_mb']//1024}GB VRAM", text_color=TEXT_MUTED)
 
-            self.root.after(0, _apply)
+            try:
+                if hasattr(self, "root") and self.root and self.root.winfo_exists():
+                    self.root.after(0, _apply)
+            except Exception:
+                pass
 
         threading.Thread(target=_worker, daemon=True).start()
 

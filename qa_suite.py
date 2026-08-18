@@ -496,6 +496,45 @@ class QATestRunner:
             self.record_test(cat, "Session State Exception", False, str(e))
 
     # -------------------------------------------------------------------------
+    # 14. Tooltip & Resize Geometry Performance
+    # -------------------------------------------------------------------------
+    def test_tooltip_and_resize_geometry(self):
+        cat = "Tooltip Coverage & Resize Performance"
+        try:
+            import config
+            import customtkinter as ctk
+            from ComfyUI_App import ComfyUIApp
+
+            # Verify core tooltips exist
+            required_tips = ["AdaLN Cache", "TeaCache", "Spectrum", "BlockSwap", "Clean Prompt", "Restart Server", "Open Folder"]
+            for tip in required_tips:
+                exists = tip in config.TOOLTIPS
+                self.record_test(cat, f"Tooltip Definition: {tip}", exists, f"Tooltip text: {config.TOOLTIPS.get(tip, ('', ''))[0]}")
+
+            root = ctk.CTk()
+            root.withdraw()
+            app = ComfyUIApp(root)
+
+            # Check video switches exist and are bound
+            has_txt2vid_adaln = hasattr(app, "video_adaln_var") and app.video_adaln_var is not None
+            has_v2v_adaln = hasattr(app, "v2v_adaln_var") and app.v2v_adaln_var is not None
+            self.record_test(cat, "Txt2Vid AdaLN Cache Control", has_txt2vid_adaln, "self.video_adaln_var active")
+            self.record_test(cat, "Vid2Vid AdaLN Cache Control", has_v2v_adaln, "self.v2v_adaln_var active")
+
+            # Stress test scrollframe resize event (verify non-blocking debounced updates)
+            from ComfyUI_App import AutoHideScrollFrame
+            test_sf = AutoHideScrollFrame(root)
+            t0 = time.time()
+            for w in range(800, 1200, 20):
+                test_sf._on_canvas_configure(type("Event", (), {"width": w})())
+            dt = time.time() - t0
+            self.record_test(cat, "ScrollFrame 60FPS Coalesced Resize", dt < 0.25, f"20 configure events executed in {dt*1000:.1f}ms")
+
+            root.destroy()
+        except Exception as e:
+            self.record_test(cat, "Tooltip & Resize Exception", False, str(e))
+
+    # -------------------------------------------------------------------------
     # Run All & Generate Reports
     # -------------------------------------------------------------------------
     def run_all(self):
@@ -516,6 +555,7 @@ class QATestRunner:
         self.test_workflow_builders()
         self.test_sota_models_and_aspect_ratios()
         self.test_session_state_lifecycle()
+        self.test_tooltip_and_resize_geometry()
 
         total = len(self.results)
         passed = sum(1 for r in self.results if r["status"] == "PASS")

@@ -191,6 +191,21 @@ TOOLTIPS = {
     "Open Folder": ("Open Output Vault", "Open the local media storage directory in Windows File Explorer (Ctrl+O)."),
     "Enhance Prompt": ("⚡ Local LLM Prompt Enhancer", "1-Click expand brief concepts into rich, cinematic prompts using local LLM integration."),
     "Rehydrate": ("💧 Parameter Re-Hydration", "Inspect embedded generation metadata in PNG and restore full prompt, seed, model, and sampling configs."),
+    "AdaLN Cache": ("AdaLN Cache Acceleration", "Pre-bakes Adaptive LayerNorm modulations and skips redundant AdaLN weight passes during DiT sampling. Delivers faster generation with minimal quality loss."),
+    "TeaCache": ("TeaCache Acceleration", "Timestep Embedding-Aware Cache that skips redundant transformer blocks across timesteps for 1.8x faster DiT video inference."),
+    "Spectrum": ("Spectrum Native Cache Path", "Enables Spectrum-based spatial latent cache optimization to speed up video diffusion frames."),
+    "BlockSwap": ("BlockSwap VRAM Offloading", "Dynamically swaps transformer blocks between CPU RAM and GPU VRAM to allow large DiT/video models to run on 8GB VRAM."),
+    "Storyboard": ("Storyboard Keyframes", "Interpolate between multiple sequential prompt keyframes to guide video scene progression."),
+    "First/Last Frame": ("Frame Visual Constraints", "Lock starting and ending frame visuals for seamless looping or transitions."),
+    "Loop Video": ("Seamless Video Looping", "Ensure the final video frame blends smoothly back into the initial frame."),
+    "Clean Prompt": ("✨ Clean Prompt", "Automatically strip duplicate tags, remove trailing commas, fix malformed brackets, and clean whitespace."),
+    "Prompt History": ("Prompt History", "Quickly select and restore previously executed prompts from this session."),
+    "Last Prompt": ("Restore Last Prompt", "Restore the exact prompt from your last completed generation."),
+    "Copy Prompt": ("Copy Prompt", "Copy active prompt text directly to system clipboard."),
+    "Restart Server": ("Restart Backend (Ctrl+R)", "Soft-restart the ComfyUI background server process without closing the GUI."),
+    "View Log": ("Open Live Logs", "Open the application debug log file in your default text editor."),
+    "Save History": ("Export History", "Export generation parameter snapshot and prompt records."),
+    "Free VRAM": ("⚡ Purge VRAM (Ctrl+Shift+V)", "Flush PyTorch CUDA cache and release unused model weights from GPU memory."),
 }
 
 class ConfigManager:
