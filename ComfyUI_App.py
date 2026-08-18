@@ -618,96 +618,86 @@ MODELS = {
 # plus an explicit 'format' key that drives _convert_to_game_texture suffixing.
 
 TXT2IMG_PRESETS = {
-    "🎮 UE5 Nanite Character (PBR 8k Reference)": {
-        "model": "epiCRealism XL", "prompt": "full body 3D game character concept art for Unreal Engine 5 Nanite, AAA game asset, high fantasy paladin in detailed runic plate armor, weapon design, neutral A-pose, highly detailed texture map, UE5 Lumen rendering, ZBrush sculpt pass, PBR materials, 8k resolution, volumetric lighting, character reference sheet",
-        "neg": "blurry, low quality, distorted anatomy, extra arms, watermark, text, signature, lowres, 2d flat, out of frame",
-        "w": 832, "h": 1216, "steps": 35, "cfg": 7.0, "format": "Unreal Engine 5 (TGA PBR Asset)"},
-    "🏔️ UE5 Lumen Landscape & HDRI Skybox (360)": {
-        "model": "Juggernaut XL", "prompt": "unreal engine 5 landscape environment, lumen global illumination, panoramic 360 HDRI skybox texture, epic mountain valley at sunset, volumetric atmospheric mist, Megascans asset quality, photorealistic foliage, 8k game environment render",
-        "neg": "blurry, distortion, low quality, flat lighting, watermark, text, character",
-        "w": 1216, "h": 832, "steps": 35, "cfg": 6.5, "format": "Unreal Engine 5 (TGA PBR Asset)"},
-    "⚡ UE5 Niagara Particle VFX Sprite Sheet": {
-        "model": "Pony Diffusion V6 XL", "prompt": "game VFX texture sheet for Unreal Engine 5 Niagara, glowing magic elemental explosion frames, dark isolated background, clean alpha channel, 4x4 grid sequence, high energy particle system asset, game VFX sprite",
-        "neg": "blurry, noisy, lowres, complex background, text, signature",
-        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.0, "format": "Unreal Engine 5 (TGA PBR Asset)"},
-    "⚔️ Unity URP/HDRP Hero Weapon (Metallic-Smoothness)": {
-        "model": "epiCRealism XL", "prompt": "3D game weapon asset for Unity URP, ornate fantasy broadsword with glowing elemental runes, PBR texture maps, metallic smoothness workflow, isolated white background, KeyShot render, clean silhouette, game ready prop",
-        "neg": "blurry, cropped, flat, low quality, complex background, text, logo",
-        "w": 1024, "h": 1024, "steps": 32, "cfg": 7.0, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
-    "🌲 Unity Stylized Environment & Foliage": {
-        "model": "Pony Diffusion V6 XL", "prompt": "Unity engine stylized environment texture, hand-painted anime grass and ancient stone wall material, PBR texture map, vibrant colors, clean albedo lighting, game ready asset, Substance Painter style",
-        "neg": "realistic photo, blurry, lowres, distorted seams, watermark, text",
-        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.0, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
-    "👾 Unity 2D Sprite Sheet & UI Icon Pack": {
-        "model": "Pony Diffusion V6 XL", "prompt": "2D game UI icon set for Unity, fantasy RPG spell icons, glowing magical symbols, clean grid layout, isolated black background, crisp vector style asset, game design sheet",
-        "neg": "3d photo, blurry, messy, low quality, watermark, text",
-        "w": 1024, "h": 1024, "steps": 25, "cfg": 7.0, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
-    "🤖 Godot 4 PBR Material (Albedo/Normal/Roughness)": {
-        "model": "Juggernaut XL", "prompt": "Godot 4 PBR material texture, seamless tileable ancient metallic armor plating, Albedo map clean color, depth normal map details, roughness variation, 4k game texture, Godot 4 spatial shader ready",
-        "neg": "blurry, non-tileable, perspective angle, vignette, watermark, text",
-        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
-    "🧱 Godot 4 Isometric Dungeon Tilemap": {
-        "model": "Pony Diffusion V6 XL", "prompt": "Godot 4 isometric dungeon tilemap asset, modular stone walls, floor tiles, wooden doors, torches, clean 2.5D grid layout, game dev tile sheet, clean asset design",
-        "neg": "3d photo, blurry, messy, low resolution, watermark, text",
-        "w": 1024, "h": 1024, "steps": 28, "cfg": 7.0, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
-    "🕹️ Godot 3D Low-Poly Retro Model Texture": {
-        "model": "Pony Diffusion V6 XL", "prompt": "low-poly retro 3D game model texture, PS1 / PSX game aesthetic, pixelated hand-painted textures, clean UV layout, nostalgic retro RPG character asset, crunchy 32-bit style",
-        "neg": "photorealistic, HD 8k, modern 3d, blurry, smooth gradient",
-        "w": 768, "h": 768, "steps": 25, "cfg": 6.5, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
-    "🌋 Vulkan 1.4 PBR Albedo Base Color Map (sRGB)": {
-        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 PBR Albedo base color map, seamless tileable futuristic alloy armor plating, flat uniform lighting, clean diffuse color pass, no baked directional shadows, 4k raw game texture, Vulkan 1.4 SPIR-V ready",
-        "neg": "blurry, directional shadow, non-tileable, vignette, perspective distortion, watermark, text",
-        "w": 1024, "h": 1024, "steps": 32, "cfg": 7.0, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
-    "🌀 Vulkan 1.4 Tangent Normal Map (R=X, G=Y, B=Z)": {
-        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 tangent space normal map texture, purple blue RGB channel map (R=X tangent, G=Y bitangent, B=Z surface normal), seamless tileable mechanical panel bevels and rivet depth, 4k game texture",
-        "neg": "diffuse color, albedo, blurry, non-tileable, watermark, text",
-        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
-    "📦 Vulkan 1.4 Packed ORM Map (R=AO, G=Roughness, B=Metallic)": {
-        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 packed ORM channel map, Red=Ambient Occlusion, Green=Roughness, Blue=Metallicness, seamless tileable surface roughness variation and metallic mask, 4k game engine texture map",
-        "neg": "diffuse color, blurry, non-tileable, watermark, text",
-        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
-    "🏔️ Vulkan 1.4 Height & Displacement Map (Grayscale)": {
-        "model": "Juggernaut XL", "prompt": "Vulkan 1.4 height displacement map, 16-bit grayscale depth pass, white=high elevation, black=recessed grooves, seamless tileable stone micro-height details, tessellation ready",
-        "neg": "color, RGB, blurry, non-tileable, watermark, text",
-        "w": 1024, "h": 1024, "steps": 30, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
-    "⚡ Vulkan 1.4 Compute Shader Sprite Array (VkImageArray)": {
-        "model": "Pony Diffusion V6 XL", "prompt": "Vulkan 1.4 compute shader texture array sprite sheet, glowing energy shield impact animation frames, dark transparent background, clean 4x4 grid sequence, Vulkan 1.4 VkImageArray asset",
-        "neg": "blurry, noise, complex background, text, signature",
-        "w": 1024, "h": 1024, "steps": 28, "cfg": 6.5, "format": "Custom Engine (Vulkan 1.4 / SPIR-V)"},
-    "📸 Photoreal Studio Portrait (85mm Lens)": {
-        "model": "epiCRealism XL", "prompt": "ultra detailed studio portrait of a cybernetic mercenary, intricate facial skin pores, subsurface scattering, realistic eye reflection, shallow depth of field, 85mm f/1.4 lens, Rembrandt lighting, dramatic atmospheric haze, 8k raw photo",
-        "neg": "plastic skin, anime, 3d render, illustration, blurry, deformed face, bad eyes, watermark, text",
-        "w": 832, "h": 1216, "steps": 35, "cfg": 6.5, "format": "PNG (Standard)"},
-    "✨ Anime Studio Key Visual (Makoto Shinkai)": {
-        "model": "Pony Diffusion V6 XL", "prompt": "masterpiece anime key visual, dynamic action pose of a magical swordmaster, glowing elemental aura, intricate costume design, crisp lineart, vibrant studio illumination, Makoto Shinkai aesthetic, high detail anime artstation",
-        "neg": "3d render, photo, realistic, blurry, lowres, extra fingers, bad hands, watermark, signature",
+    "📸 Photoreal 85mm Portrait (Masterpiece)": {
+        "model": "epiCRealism XL",
+        "prompt": "ultra realistic 85mm portrait, professional studio lighting, natural skin micro-texture, pores, subsurface scattering, expressive eyes, catchlights, sharp focus, 8k raw photo, DSLR masterpiece",
+        "neg": "plastic skin, anime, 3d render, illustration, cartoon, blurry, bad anatomy, deformed eyes, extra fingers, watermark, signature",
+        "w": 832, "h": 1216, "steps": 30, "cfg": 6.5, "format": "PNG (Standard)"},
+    "🎬 Cinematic 35mm Movie Scene (Anamorphic)": {
+        "model": "Juggernaut XL",
+        "prompt": "cinematic film still, 35mm anamorphic lens, Panavision bokeh, volumetric atmospheric haze, dramatic rim lighting, cinematic color grading, rich shadows, Kodak Portra 400 aesthetic, 8k resolution",
+        "neg": "cgi, 3d render, oversaturated, blurry, bad lighting, text, watermark",
+        "w": 1344, "h": 768, "steps": 32, "cfg": 7.0, "format": "PNG (Standard)"},
+    "🎌 Anime Studio Key Visual (Makoto Shinkai)": {
+        "model": "Pony Diffusion V6 XL",
+        "prompt": "masterpiece anime key visual, dynamic lighting, glowing elemental aura, intricate character design, vibrant studio illumination, Makoto Shinkai and Ufotable aesthetic, ultra detailed, crisp lineart",
+        "neg": "3d render, realistic photo, blurry, bad anatomy, lowres, extra fingers, watermark, signature",
         "w": 832, "h": 1216, "steps": 25, "cfg": 7.0, "format": "PNG (Standard)"},
+    "🌌 Cyberpunk 2077 Night City (Rain & Neon)": {
+        "model": "Juggernaut XL",
+        "prompt": "cyberpunk megacity street at rainy night, vibrant neon reflections in wet asphalt, holographic billboards, flying futuristic vehicles, dense steam, atmospheric volumetric lighting, raytraced reflections, 8k",
+        "neg": "blurry, low quality, flat lighting, sunny, daytime, watermark, text",
+        "w": 1216, "h": 832, "steps": 30, "cfg": 6.5, "format": "PNG (Standard)"},
+    "🧙 Dark Fantasy Knight (Runic Armor & Magic)": {
+        "model": "epiCRealism XL",
+        "prompt": "epic dark fantasy warrior in ornate runic plate armor, glowing ancient sword, swirling magical mist, crumbling gothic cathedral background, dramatic volumetric rim lighting, highly detailed Artstation concept art",
+        "neg": "blurry, low quality, distorted anatomy, extra limbs, modern, plastic, text",
+        "w": 832, "h": 1216, "steps": 32, "cfg": 6.5, "format": "PNG (Standard)"},
+    "🌿 Hyperreal Alpine Mountain & River (8K)": {
+        "model": "Juggernaut XL",
+        "prompt": "breathtaking hyperrealistic alpine mountain valley, crystal clear glacial river, snow-capped jagged peaks, golden hour sunlight, lush pine forest, 8k resolution, National Geographic landscape photography",
+        "neg": "blurry, cartoon, painting, artificial, low quality, watermark, text, people",
+        "w": 1344, "h": 768, "steps": 35, "cfg": 6.0, "format": "PNG (Standard)"},
+    "🎮 AAA 3D Character Concept (UE5 Lumen)": {
+        "model": "epiCRealism XL",
+        "prompt": "full body 3D game character concept render, AAA hero asset, intricate sci-fi tactical armor, neutral standing pose, studio key light, Unreal Engine 5 Lumen rendering, ZBrush sculpt detail, PBR materials, 8k",
+        "neg": "blurry, 2d sketch, flat, low quality, bad anatomy, cropped",
+        "w": 832, "h": 1216, "steps": 32, "cfg": 7.0, "format": "Unreal Engine 5 (TGA PBR Asset)"},
+    "💎 Luxury Commercial Product Studio": {
+        "model": "Juggernaut XL",
+        "prompt": "commercial luxury studio product photography, elegant pedestal, clean glass reflections, dramatic directional spotlight, minimal aesthetic, Hasselblad medium format, ultra sharp focus, 8k",
+        "neg": "blurry, cheap, noisy, low quality, bad lighting, text, watermark",
+        "w": 1024, "h": 1024, "steps": 28, "cfg": 6.0, "format": "PNG (Standard)"},
+    "🎨 Fine Art Oil Painting (Impressionist)": {
+        "model": "Juggernaut XL",
+        "prompt": "masterpiece oil on canvas painting, visible textured brushstrokes, rich impasto, vibrant harmonious color palette, classic impressionist style, dramatic light and shadow, museum piece",
+        "neg": "photo, digital render, 3d, smooth plastic, blurry, lowres",
+        "w": 1024, "h": 1024, "steps": 30, "cfg": 7.0, "format": "PNG (Standard)"},
+    "🚀 Sci-Fi Space Station Orbit (Planetary View)": {
+        "model": "Juggernaut XL",
+        "prompt": "massive futuristic orbital space station orbiting an Earth-like exoplanet, solar panels, glowing docking bays, realistic orbital mechanics, starfield background, cinematic sci-fi concept art, 8k",
+        "neg": "blurry, cartoon, low quality, flat, watermark, text",
+        "w": 1344, "h": 768, "steps": 32, "cfg": 6.5, "format": "PNG (Standard)"},
 }
 
 IMG2IMG_PRESETS = {
-    "🎮 UE5 / Unity PBR Restyle (Denoise 0.45)": {
-        "prompt": "transform into high-end Unreal Engine 5 AAA game asset, rich PBR texturing, crisp edge definition, enhanced Lumen lighting, ZBrush sculpt detail pass, cinematic render",
-        "neg": "blurry, noise, low resolution, artifacting, oversaturated", "denoise": 0.45, "steps": 30, "format": "Unreal Engine 5 (TGA PBR Asset)"},
-    "🤖 Godot 4 PBR Enhancer (Denoise 0.40)": {
-        "prompt": "Godot 4 spatial shader enhancement, PBR material detail pass, clean albedo and normal map enhancement, sharp texture clarity",
-        "neg": "blurry, artifacts, distortion, noise", "denoise": 0.40, "steps": 30, "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
-    "🔍 Photoreal Detailer & Enhancer (Denoise 0.35)": {
-        "prompt": "photorealistic enhancement, ultra sharp 8k detail, natural skin texture, realistic micro-textures, studio lighting balance, professional color grade",
-        "neg": "plastic, over-smoothed, anime, blurry, compression artifacts, watermark", "denoise": 0.35, "steps": 35, "format": "PNG (Standard)"},
-    "🖌️ Concept Sketch to 3D Game Render (Denoise 0.65)": {
-        "prompt": "3D game model render from concept sketch, fully textured PBR asset, studio lighting, smooth clay and material pass, KeyShot 3D",
-        "neg": "2d flat sketch, notebook lines, paper texture, blurry, low quality", "denoise": 0.65, "steps": 32, "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
-    "🎌 Anime / Webtoon Re-Skin (Denoise 0.55)": {
-        "prompt": "vibrant anime illustration restyle, clean cel-shaded linework, expressive features, dramatic anime lighting, studio key visual artwork",
-        "neg": "photo, 3d render, blurry, distorted anatomy, bad linework", "denoise": 0.55, "steps": 28, "format": "PNG (Standard)"},
+    "🔍 Photoreal Enhancer & Detailer (Denoise 0.35)": {
+        "prompt": "photorealistic enhancement pass, ultra sharp 8k micro-detail, natural skin and fabric textures, professional color grading, studio lighting balance",
+        "neg": "plastic, over-smoothed, blurry, noise, compression artifacts, watermark",
+        "denoise": 0.35, "steps": 30, "format": "PNG (Standard)"},
+    "🎌 Anime / Manga Illustration Restyle (Denoise 0.55)": {
+        "prompt": "vibrant anime illustration restyle, crisp cel-shaded linework, expressive features, studio anime key visual, Makoto Shinkai aesthetic",
+        "neg": "photo, realistic 3d, blurry, distorted lines, noise",
+        "denoise": 0.55, "steps": 28, "format": "PNG (Standard)"},
+    "🌌 Cyberpunk Neon Overhaul (Denoise 0.60)": {
+        "prompt": "transform into cyberpunk aesthetic, glowing neon lights, futuristic cybernetic enhancements, reflective rainy surfaces, dark moody atmosphere",
+        "neg": "daytime, sunny, flat, blurry, low quality",
+        "denoise": 0.60, "steps": 30, "format": "PNG (Standard)"},
+    "🎨 Oil Painting Fine Art Conversion (Denoise 0.65)": {
+        "prompt": "convert into classical fine art oil painting, heavy brush strokes, artistic impasto, rich pigments, masterwork canvas",
+        "neg": "photo, sharp digital render, flat",
+        "denoise": 0.65, "steps": 32, "format": "PNG (Standard)"},
+    "🎮 3D Game Asset Stylize (Denoise 0.50)": {
+        "prompt": "stylize into high-end 3D game asset, crisp PBR texturing, clean material definition, studio lighting, Unreal Engine 5 render",
+        "neg": "flat 2d, blurry, noise, distortion",
+        "denoise": 0.50, "steps": 30, "format": "PNG (Standard)"},
 }
 
 UPSCALE_PRESETS = {
-    "🎮 UE5 Nanite / Lumen 4x (NMKD Siax TGA)": {"model": "4x_NMKD-Siax_200k.pth", "scale": "4", "format": "Unreal Engine 5 (TGA PBR Asset)"},
-    "⚔️ Unity URP/HDRP PBR Asset 4x (UltraSharp)": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "Unity URP/HDRP (PNG Metallic-Smoothness)"},
-    "🤖 Godot 4 Spatial Texture 4x (UltraSharp)": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "Godot 4 Engine (PNG Albedo/Normal Map)"},
-    "⚡ 4x UltraSharp (Photo & General 4x)": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "PNG (Standard)"},
-    "🚀 ESRGAN 4x Clean (Fast Upscale 2x)": {"model": "ESRGAN_4x.pth", "scale": "2", "format": "PNG (Standard)"},
+    "⚡ 4x UltraSharp (Photo & General High Quality)": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "PNG (Standard)"},
+    "📸 4x NMKD Siax (Portraits & Realistic Skin)": {"model": "4x_NMKD-Siax_200k.pth", "scale": "4", "format": "PNG (Standard)"},
+    "🚀 2x Fast Clean ESRGAN (Quick Preview)": {"model": "ESRGAN_4x.pth", "scale": "2", "format": "PNG (Standard)"},
+    "🎮 4x Game Asset & Texture Enhancer": {"model": "4x-UltraSharp.pth", "scale": "4", "format": "PNG (Standard)"},
 }
 
 AUDIO_PRESETS = {
@@ -734,16 +724,16 @@ AUDIO_PRESETS = {
 }
 
 VIDEO_PRESETS = {
-    "🎬 UE5 / Unity Cinematic Cutscene (Slow Zoom In)": {
-        "prompt": "epic game cinematic cutscene for Unreal Engine 5, atmospheric fog, Lumen lighting, high fidelity particle effects, cinematic 24fps camera move",
+    "🎬 Cinematic Cutscene (Slow Zoom In)": {
+        "prompt": "epic cinematic movie cutscene, atmospheric fog, volumetric raytracing, high fidelity lighting, cinematic 24fps camera move",
         "camera_motion": "Slow Zoom In", "resolution": "360p (640x360)", "duration": "5s"},
-    "🔄 3D Game Prop Showcase (Orbit Camera)": {
-        "prompt": "3D game character showcase, full 360 orbit camera, smooth character motion, high-end Unreal/Unity game engine render",
+    "🔄 3D Character Showcase (Orbit Camera)": {
+        "prompt": "detailed character showcase, full 360 orbit camera, smooth character motion, cinematic lighting render",
         "camera_motion": "Orbit", "resolution": "360p (640x360)", "duration": "5s"},
-    "🌄 Panoramic Environment Flythrough (Pan Right)": {
-        "prompt": "sweeping panoramic environment shot, volumetric clouds, wind in vegetation, cinematic lighting, Godot/Unity terrain preview",
+    "🌄 Panoramic Landscape Flythrough (Pan Right)": {
+        "prompt": "sweeping panoramic landscape shot, volumetric clouds, wind in vegetation, cinematic sunset lighting",
         "camera_motion": "Pan Right", "resolution": "360p (640x360)", "duration": "5s"},
-    "🎥 Immersive FP Camera Motion (Handheld)": {
+    "🎥 Immersive First-Person Camera (Handheld)": {
         "prompt": "first-person immersive perspective, natural camera shake, realistic movement dynamics",
         "camera_motion": "Handheld", "resolution": "288p (576x324)", "duration": "3s"},
 }
@@ -751,18 +741,32 @@ VIDEO_PRESETS = {
 # Backward-compat alias (the original code references PRESETS).
 PRESETS = TXT2IMG_PRESETS
 
-# Engine → keyword list used by _get_active_presets_dict to filter which
-# presets apply when an engine is selected.
+# Style Category keywords used to filter presets
 ENGINE_KEYWORDS = {
-    "Unreal Engine 5 (UE5)": ["Unreal", "UE5"],
-    "Unity (URP/HDRP)": ["Unity", "URP", "HDRP"],
-    "Godot 4 Engine": ["Godot"],
-    "Custom Engine (Vulkan 1.4 / SPIR-V)": ["Vulkan", "SPIR-V", "Shader", "Custom"],
+    "📸 Photorealism & Portraits": ["photo", "portrait", "commercial", "dslr", "85mm"],
+    "🎬 Cinematic & Film (35mm)": ["cinematic", "film", "movie", "35mm", "anamorphic"],
+    "🎌 Anime & Digital Art": ["anime", "manga", "shinkai", "illustration"],
+    "🌌 Cyberpunk & Sci-Fi": ["cyberpunk", "sci-fi", "neon", "space", "station"],
+    "🧙 Fantasy & Concept Art": ["fantasy", "knight", "magic", "runic", "concept"],
+    "🎮 Game Art & 3D Assets": ["game", "ue5", "character", "asset", "3d"],
+    "🌿 Nature & Landscapes (8K)": ["landscape", "alpine", "mountain", "river", "nature"],
+    "🎨 Fine Art & Illustration": ["oil", "painting", "fine art", "canvas", "impressionist"],
 }
+STYLE_KEYWORDS = ENGINE_KEYWORDS
 
-# The Target Engine dropdown values + the Output Format dropdown.
-TARGET_ENGINES = ("All Engines", "Unreal Engine 5 (UE5)", "Unity (URP/HDRP)",
-                  "Godot 4 Engine", "Custom Engine (Vulkan 1.4 / SPIR-V)")
+# Target Style Category dropdown values
+TARGET_ENGINES = (
+    "All Styles",
+    "📸 Photorealism & Portraits",
+    "🎬 Cinematic & Film (35mm)",
+    "🎌 Anime & Digital Art",
+    "🌌 Cyberpunk & Sci-Fi",
+    "🧙 Fantasy & Concept Art",
+    "🎮 Game Art & 3D Assets",
+    "🌿 Nature & Landscapes (8K)",
+    "🎨 Fine Art & Illustration",
+)
+CREATIVE_STYLES = TARGET_ENGINES
 
 OUTPUT_FORMATS = ("PNG (Standard)", "Game Texture (TGA Power-of-Two)",
                   "Unreal Engine 5 (TGA PBR Asset)",
@@ -2789,9 +2793,9 @@ class ComfyUIApp:
         self.preset_menu.grid(row=0, column=2, padx=4, sticky="w")
         ToolTip(self.preset_menu, *TOOLTIPS["Preset"])
 
-        # Target Game Engine selector
+        # Creative Style Category selector
         self.target_engine_str = ctk.StringVar(
-            value=self._load_target_engine() if hasattr(self, "_load_target_engine") else "All Engines")
+            value=self._load_target_engine() if hasattr(self, "_load_target_engine") else "All Styles")
         self.engine_menu = ctk.CTkOptionMenu(toolbar, values=list(TARGET_ENGINES), font=self.FONT_NORMAL,
                                              variable=self.target_engine_str,
                                              fg_color=BG_CARD,
@@ -2801,10 +2805,10 @@ class ComfyUIApp:
                                              dropdown_fg_color=DROPDOWN_FG,
                                              dropdown_text_color=DROPDOWN_TEXT,
                                              dropdown_hover_color=DROPDOWN_HOVER,
-                                             command=self._on_target_engine_change, width=130)
+                                             command=self._on_target_engine_change, width=140)
         self.engine_menu.grid(row=0, column=3, padx=4, sticky="w")
-        ToolTip(self.engine_menu, ("Target Engine",
-                                   "Filter presets to those matching the selected game engine."))
+        ToolTip(self.engine_menu, ("Creative Style Category",
+                                   "Filter presets to a specific artistic genre (Photorealism, Cinematic 35mm, Anime, Cyberpunk, Fantasy)."))
         self._update_preset_menu_for_tab()
 
         self.gen_btn = ctk.CTkButton(toolbar, text="⚡ GENERATE (CTRL+E)", width=140, font=self.FONT_NORMAL_BOLD,
@@ -7573,7 +7577,7 @@ class ComfyUIApp:
     # ------------------------------------------------------------------
     def _get_active_presets_dict(self):
         """Return the preset dict for the current tab, optionally filtered
-        by the selected Target Game Engine."""
+        by the selected Creative Style Category."""
         tab = self.current_tab
         if tab == "txt2img":
             base = TXT2IMG_PRESETS
@@ -7587,38 +7591,39 @@ class ComfyUIApp:
             base = VIDEO_PRESETS
         else:
             base = TXT2IMG_PRESETS
-        engine = self.target_engine_str.get() if hasattr(self, "target_engine_str") else "All Engines"
-        if engine and engine != "All Engines":
-            kw = ENGINE_KEYWORDS.get(engine, [])
+        style = self.target_engine_str.get() if hasattr(self, "target_engine_str") else "All Styles"
+        if style and style not in ("All Styles", "All Engines"):
+            kw = STYLE_KEYWORDS.get(style, [])
             if kw:
                 filtered = {}
                 for k, v in base.items():
-                    lbl = k.lower()
-                    if any(kw.lower() in lbl for kw in kw):
+                    lbl = (k + " " + v.get("prompt", "")).lower()
+                    if any(w.lower() in lbl for w in kw):
                         filtered[k] = v
                 if filtered:
                     return filtered
         return base
 
     def _on_target_engine_change(self, val=None):
-        """Persist the chosen engine and rebuild the preset menu."""
+        """Persist the chosen style and rebuild the preset menu."""
         try:
-            engine = val if val else (
-                self.target_engine_str.get() if hasattr(self, "target_engine_str") else "All Engines")
-            self.config_manager.settings["target_engine"] = engine
+            style = val if val else (
+                self.target_engine_str.get() if hasattr(self, "target_engine_str") else "All Styles")
+            self.config_manager.settings["target_engine"] = style
             self.config_manager.save()
             self._update_preset_menu_for_tab()
-            self._set_status("Target Game Engine set to: %s" % engine)
+            self._set_status(f"Creative Style set to: {style}")
         except Exception as e:
-            logging.error("Engine change error: %s", e)
-            self._set_status("Error: %s" % str(e)[:30])
+            logging.error("Style change error: %s", e)
+            self._set_status(f"Error: {str(e)[:30]}")
 
     def _load_target_engine(self):
-        """Read persisted engine selection from config_manager."""
+        """Read persisted style selection from config_manager."""
         try:
-            return self.config_manager.settings.get("target_engine", "All Engines")
+            val = self.config_manager.settings.get("target_engine", "All Styles")
+            return val if val in TARGET_ENGINES else "All Styles"
         except Exception:
-            return "All Engines"
+            return "All Styles"
 
     def _save_target_engine(self, engine):
         """Persist engine selection to config_manager."""

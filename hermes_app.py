@@ -52,7 +52,7 @@ from PySide6.QtGui import (
     QFontMetrics, QRadialGradient,
 )
 from PySide6.QtCore import (Qt, QTimer, QPoint, QPointF, QSize, QModelIndex,
-                             QRect, QElapsedTimer, QEvent, QThread, QObject, Signal,
+                             QRect, QElapsedTimer, QEvent, QThread, QObject, Signal, Slot,
                              QMetaObject, QSettings, QByteArray)
 
 # ---------------------------------------------------------------------------
@@ -164,16 +164,15 @@ DISCOVER_SERVERS = [
 ]
 
 def scan_local_ai_servers():
-    """Scan all standard local AI endpoints and return a list of active services."""
+    """Scan all standard local AI endpoints using ultra-fast loopback socket tests (< 5ms)."""
     active = []
+    import socket
     for s in DISCOVER_SERVERS:
         try:
-            req = urllib.request.Request(s["url"], headers={"User-Agent": "MatrixHUD"})
             t0 = time.time()
-            with urllib.request.urlopen(req, timeout=0.6) as resp:
-                lat = int((time.time() - t0) * 1000)
-                if resp.status in (200, 404, 401, 403):
-                    active.append({**s, "status": "ONLINE", "latency_ms": lat})
+            with socket.create_connection(("127.0.0.1", s["port"]), timeout=0.04):
+                lat = max(1, int((time.time() - t0) * 1000))
+                active.append({**s, "status": "ONLINE", "latency_ms": lat})
         except Exception:
             pass
     return active
@@ -190,6 +189,7 @@ class _TelemetryWorker(QObject):
     result_ready = Signal(object)
     servers_ready = Signal(list)
 
+    @Slot()
     def fetch(self):
         self.result_ready.emit(fetch_telemetry())
         try:
@@ -1149,17 +1149,48 @@ class HermesMatrixApp(QWidget):
             press = getattr(self, "_press_global", None)
             if press is not None:
                 dist = (ev.globalPosition().toPoint() - press).manhattanLength()
+    # ---- Frameless drag + close-to-tray ----
+    def _save_geometry(self):
+        # Additive QOL: persist window frame (pos+size) across restarts.
+        if hasattr(self, "_settings"):
+            self._settings.setValue("geometry", self.saveGeometry())
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        if hasattr(self, "rain"):
+            self.rain.setGeometry(0, 0, self.width(), self.height())
+        if hasattr(self, "content"):
+            self.content.setGeometry(0, 0, self.width(), self.height())
+        self._save_geometry()
+
+    def moveEvent(self, ev):
+        super().moveEvent(ev)
+        self._save_geometry()
+
+    def mousePressEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self._drag = ev.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            self._press_global = ev.globalPosition().toPoint()
+            ev.accept()
+
+    def mouseMoveEvent(self, ev):
+        if getattr(self, "_drag", None) is not None and ev.buttons() & Qt.LeftButton:
+            self.move(ev.globalPosition().toPoint() - self._drag)
+            ev.accept()
+
+    def mouseReleaseEvent(self, ev):
+        if ev.button() == Qt.LeftButton and getattr(self, "_drag", None) is not None:
+            # Click (not drag) on the canvas toggles rain pause/resume.
+            press = getattr(self, "_press_global", None)
+            if press is not None:
+                dist = (ev.globalPosition().toPoint() - press).manhattanLength()
                 if dist < 5:
                     self.rain.toggle_pause()
         self._drag = None
         self._save_geometry()
 
     # ---- Frameless resizing (native WM_NCHITTEST hit-testing) ----
-    _RESIZE_MARGIN = 12
-
-    def nativeEvent(self, eventType, message):  # noqa: N802 (PySide name)
-        # Only handle WM_NCHITTEST so the frameless window can be resized
-        # from any edge/corner while the body stays drag-movable.
+    def nativeEvent(self, eventType, message):
         import ctypes
         try:
             msg = ctypes.wintypes.MSG.from_address(int(message))
@@ -1197,28 +1228,23 @@ class HermesMatrixApp(QWidget):
         return (True, result)
 
     def closeEvent(self, ev):
-        # External (watchdog) close: perform a real quit so no tray icon or
-        # hidden window lingers. User close (clicking X) still minimizes to
-        # tray per the original design.
-        if os.path.exists(r"C:\LocalCoder\.hud_ext_close"):
-            try:
-                os.remove(r"C:\LocalCoder\.hud_ext_close")
-            except OSError:
-                pass
-            post_admin("/admin/unload_all")  # free VRAM
-            QApplication.instance().quit()    # fully exit (removes tray icon)
-            ev.accept()
-            return
-        # Minimize to tray instead of quitting.
-        ev.ignore()
-        self.hide()
+        try:
+            if hasattr(self, "_settings"):
+                self._settings.setValue("geometry", self.saveGeometry())
+        except Exception:
+            pass
+        try:
+            post_admin("/admin/unload_all")
+        except Exception:
+            pass
+        ev.accept()
+        QApplication.instance().quit()
 
 
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 def main():
-    # Hide the launcher console (pythonw already hides it; harmless if missing).
     try:
         import ctypes
         hwnd = ctypes.windll.kernel32.GetConsoleWindow()
@@ -1228,17 +1254,26 @@ def main():
         pass
 
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)
+    app.setQuitOnLastWindowClosed(True)
 
-    # Single-instance guard (replaces the broken embedded Hermes watcher).
+    # Single-instance guard with active signal
     import ctypes
     KERNEL32 = ctypes.windll.kernel32
-    mutex = KERNEL32.CreateMutexW(None, False, "LocalCoderHermesMatrixHUD")
+    mutex = KERNEL32.CreateMutexW(None, False, "LocalCoderHermesMatrixHUD_v3")
     if mutex and KERNEL32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        trigger = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".show_hud")
+        try:
+            with open(trigger, "w") as f:
+                f.write("show")
+        except Exception:
+            pass
         sys.exit(0)
 
     hud = HermesMatrixApp()
     hud.show()
+    hud.showNormal()
+    hud.raise_()
+    hud.activateWindow()
     sys.exit(app.exec())
 
 
