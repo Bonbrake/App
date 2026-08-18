@@ -4,10 +4,15 @@ import PyInstaller  # fail fast if missing
 # FIX (2026-08-09): PyInstaller 6.21's isolated subprocess crashes on
 # discover_hook_directories() with "TypeError: arg 5 (closure) must be tuple"
 # (the function is a closure and the _child.py marshal path mangles it under
-# Python 3.11.15). The spec uses hookspath=[] + explicit hiddenimports, so the
-# custom-hook scan is a no-op anyway. Replace it with a plain module-level
-# (non-closure) function to bypass the broken isolation. Build-only; no effect
-# on the frozen app.
+# Python 3.11.15). Replace it with a plain module-level (non-closure) function
+# to bypass the broken isolation. Build-only; no effect on the frozen app.
+#
+# IMPORTANT (corrected 2026-08-17): this stub returns [] and therefore supplies
+# NO hooks. The entry-point hook directories are instead rediscovered IN-PROCESS
+# by _discover_hook_dirs_inproc() in ComfyUI_Uncensored.spec and passed as
+# hookspath=hook_dirs. Both halves are required: this stub prevents the crash,
+# the spec restores the numpy/PIL binary hooks. Do not "simplify" either one to
+# hookspath=[] — that silently drops ~70 MB of deps and yields a broken bundle.
 try:
     from PyInstaller.building import build_main as _bm
     def _discover_hook_directories_noop():
@@ -50,7 +55,7 @@ try:
         "built_with": "PyInstaller %s" % getattr(PyInstaller, "__version__", "?"),
         # Stable project identity — deliberately NOT basename(REPO_ROOT), which
         # would leak whatever the local checkout folder happens to be called.
-        "repo": "ComfyUI-Uncensored",
+        "repo": "Bonbrake/App",
         "target": "ComfyUI_Uncensored (ComfyUI_App.py)",
     }
     with open(BUILD_INFO, "w") as _bf:

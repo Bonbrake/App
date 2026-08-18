@@ -1321,7 +1321,7 @@ class ComfyUIApp:
             breadcrumb("app_start")
         except Exception as e:
             logging.warning("Diagnostics init warning: %s", e)
-        root.title("ComfyUIX")
+        root.title("ComfyUI Uncensored")
         root.geometry("1280x1120")
         root.minsize(900, 640)
         mode = ctk.get_appearance_mode().lower()
@@ -1638,8 +1638,8 @@ class ComfyUIApp:
     def _stamped_title(self):
         stamp, mb = self._build_info()
         if getattr(sys, "frozen", False):
-            return "ComfyUIX Studio AAA  ·  build %s  ·  %d MB" % (stamp, mb)
-        return "ComfyUIX Studio AAA  ·  dev"
+            return "ComfyUI Uncensored  ·  build %s  ·  %d MB" % (stamp, mb)
+        return "ComfyUI Uncensored  ·  dev"
 
     # ------------------------------------------------------------------
     def _build_sidebar(self):
@@ -2364,6 +2364,7 @@ class ComfyUIApp:
         self.tabview.add("Video to Video")
         self.tabview.add("Video Refine & Upscale")
         self.tabview.add("Audio")
+        self.tabview.add("Debug")
         self.tabview.set("Text to Image")
 
         self._tab_callbacks = {
@@ -2374,11 +2375,12 @@ class ComfyUIApp:
             "Video to Video": self._build_video_v2v_tab,
             "Video Refine & Upscale": self._build_video_refine_tab,
             "Audio": self._build_audio_tab,
+            "Debug": self._build_debug_tab,
         }
         self._tab_built = {"Text to Image": False, "Image to Image": False,
                            "Upscale": False, "Text to Video": False,
                            "Video to Video": False, "Video Refine & Upscale": False,
-                           "Audio": False}
+                           "Audio": False, "Debug": False}
 
         # Build txt2img tab immediately
         self._on_tab()
@@ -3174,7 +3176,7 @@ class ComfyUIApp:
         ks_in = {"model": ["H3Loader", 0], "positive": ["H3Cond", 0],
                  "seed": seed, "steps": steps, "cfg": cfg, "sampler_name": sampler,
                  "scheduler_name": "normal", "shift_video": shift, "shift_audio": 3.0,
-                 "denoise": denoise, "use_adaln_cache": adaln, "spectrum": spectrum, "adaln_prebake_batch": 3,
+                 "denoise": denoise, "use_adaln_cache": adaln, "adaln_prebake_batch": 3,
                  "negative": ["H3Cond", 0], "latent": ["H3Cond", 2]}
         if neg and neg.strip():
             ks_in["negative"] = ["H3Cond", 1]
@@ -3913,7 +3915,7 @@ class ComfyUIApp:
     def _build_audio_tab(self):
         """Audio / NPC Voice generation tab.
 
-        Reconstructed from the deployed ComfyUIX.exe bytecode (the feature was
+        Reconstructed from the deployed ComfyUI_Uncensored.exe bytecode (the feature was
         shipped only in the frozen build, not in tracked source). Uses the exact
         widget set, variable keys, and copy from that build so future `build_exe.py`
         runs keep the audio console. Mirrors the image/video tab conventions
@@ -4415,7 +4417,7 @@ class ComfyUIApp:
         sf.grid_rowconfigure(5, weight=1)
         sf.grid_rowconfigure(7, weight=1)
 
-        ctk.CTkLabel(sf, text="ComfyUIX Diagnostics & Failure Intelligence",
+        ctk.CTkLabel(sf, text="ComfyUI Uncensored Diagnostics & Failure Intelligence",
                      font=ctk.CTkFont(size=14, weight="bold"), text_color=TEXT).grid(
             row=0, column=0, padx=12, pady=(10, 6), sticky="w")
 
@@ -6557,12 +6559,12 @@ def main():
         pass
     # ------------------------------------------------------------------
     # SINGLE-INSTANCE GUARD (root-cause fix for "two apps open from the
-    # shortcut"). A named global mutex lets only ONE ComfyUIX process own
+    # shortcut"). A named global mutex lets only ONE app process own
     # the UI at a time. A second launch finds the mutex held by a LIVE
     # process, raises that window to front, and exits — so a double-click
     # or accidental second click can never spawn a 2nd GUI + 2nd backend.
     # ------------------------------------------------------------------
-    _SINGLE_INSTANCE_MUTEX = "Global\\ComfyUIX_SingleInstance_v1"
+    _SINGLE_INSTANCE_MUTEX = "Global\\ComfyUI_Uncensored_SingleInstance_v1"
     _already_running = False
     _mutex_handle = None
     if os.name == "nt":
@@ -6582,7 +6584,7 @@ def main():
             import ctypes
             _user32 = ctypes.windll.user32
             _hwnd = _user32.FindWindowW(None, None)
-            # Find the existing ComfyUIX window by its class/title.
+            # Find the existing app window by its class/title.
             # CTk uses a Tk toplevel; enumerate windows to match our title.
             _target = None
             def _enum(hwnd, _):
@@ -6591,7 +6593,7 @@ def main():
                     return True
                 _buf = ctypes.create_unicode_buffer(256)
                 _user32.GetWindowTextW(hwnd, _buf, 256)
-                if _buf.value and ("ComfyUIX" in _buf.value):
+                if _buf.value and ("ComfyUI Uncensored" in _buf.value):
                     _target = hwnd
                 return True
             _EnumWindows = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -6599,7 +6601,7 @@ def main():
             if _target:
                 _user32.ShowWindow(_target, 9)  # SW_RESTORE = 9
                 _user32.SetForegroundWindow(_target)
-            print("ComfyUIX already running — brought existing window to front; this instance will exit.")
+            print("ComfyUI Uncensored already running — brought existing window to front; this instance will exit.")
         except Exception:
             pass
         sys.exit(0)
@@ -6621,7 +6623,7 @@ def main():
 
     _reassert_tcl_tk_env()
     root = ctk.CTk()
-    root.title("ComfyUIX")
+    root.title("ComfyUI Uncensored")
     root.configure(bg="#141416")
     app = ComfyUIApp(root)
     root.title(app._stamped_title())

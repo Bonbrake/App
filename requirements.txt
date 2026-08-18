@@ -1,22 +1,32 @@
 # ComfyUI Uncensored Desktop — runtime dependencies
-# NOTE: The shipping application is built with CustomTkinter (see ComfyUI_App.py).
-# The PyQt6 modules under spark_plan_qt6/ are a PROPOSED alternative architecture
-# and are NOT imported by the running app. They are kept here only as a reference
-# snapshot of the Spark Improvement Plan and are not required to run the app.
+#
+# The shipping application is a CustomTkinter desktop app (entry point:
+# ComfyUI_App.py). Every dependency below was verified against the actual
+# import graph of the tracked source tree — nothing here is aspirational.
+#
+# For a byte-reproducible build, install requirements.lock.txt instead
+# (exact "==" pins of the versions this release was built and tested with).
 
-# --- Required by the shipping CustomTkinter app ---
-customtkinter>=5.2
-pillow>=10.0
-psutil>=5.9
-websocket-client>=1.6
-httpx>=0.27
-requests>=2.31
+# --- Required: imported unconditionally by the shipping app ---
+customtkinter>=5.2        # ComfyUI_App.py, widgets.py, comfyui_desktop/*
+pillow>=10.0              # PIL — glass.py, gallery.py, widgets.py
+requests>=2.31            # backend.py, config.py, ws_client.py (localhost API)
 
-# --- Optional hardware telemetry (auto-detected at runtime) ---
-# torch          # only if a local CUDA backend is managed directly
-# pynvml         # NVIDIA VRAM telemetry (falls back to torch.cuda when present)
+# --- Required for optional-but-shipped features (guarded imports) ---
+# Each is wrapped in try/except: the app still launches without it, but the
+# named feature is silently unavailable.
+numpy>=1.26               # glass.py:94 make_gradient() — vectorized header/glass
+                          # gradients. Guarded at every call site (glass.py:75,82;
+                          # ComfyUI_App.py:6075): without it the UI falls back to
+                          # flat color instead of crashing. Pinned because the
+                          # shipped look depends on it.
+psutil>=5.9               # orphan_reap.reap_process_tree() descendant cleanup
+imageio>=2.34             # video export tab
+imageio-ffmpeg>=0.5       # video encoder backend for imageio
+pywin32>=306              # SAPI text-to-speech + image-to-clipboard copy
 
-# --- Proposed PyQt6 architecture (spark_plan_qt6/, NOT used at runtime) ---
-# PyQt6
-# PyQt6-WebEngine
-# PyQt6-WebChannel
+# --- Build-time only (not needed to run from source) ---
+# pyinstaller>=6.21       # see build_exe.py / ComfyUI_Uncensored.spec
+
+# --- Detected at runtime if present; never installed by this app ---
+# torch                   # CUDA VRAM probe for the --fp16-vae auto-tune

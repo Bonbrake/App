@@ -56,19 +56,58 @@ def _discover_hook_dirs_inproc():
 
 hook_dirs = _discover_hook_dirs_inproc()
 
+# FIX (2026-08-17): numpy 2.x imports several `numpy._core` submodules from
+# inside its C extension (_multiarray_umath), so PyInstaller's static module
+# graph cannot see them. numpy's bundled hook-numpy.py only declares
+# `_dtype_ctypes` and `_multiarray_tests`, which left `numpy._core._exceptions`
+# out of the PYZ. At runtime that raised
+#   "Importing the numpy C-extensions failed ... No module named
+#    numpy._core._exceptions"
+# which the guarded `import imageio` in ComfyUI_App.py swallowed, silently
+# disabling video support (HAS_VIDEO=False) in an otherwise "successful" build.
+# Collect the whole `numpy._core` package instead of hand-picking names so a
+# future numpy point release cannot reintroduce the same class of gap.
+try:
+    from PyInstaller.utils.hooks import collect_submodules
+    _numpy_core_hidden = collect_submodules('numpy._core')
+except Exception:
+    # Never let a hook-API change break the build; fall back to the exact
+    # module that was verified missing from the bundle.
+    _numpy_core_hidden = ['numpy._core._exceptions']
+# Guarantee the verified-missing module is present regardless of which path ran.
+for _m in ('numpy._core._exceptions', 'numpy._core._dtype_ctypes', 'numpy.exceptions'):
+    if _m not in _numpy_core_hidden:
+        _numpy_core_hidden.append(_m)
+
 a = Analysis(
     ['ComfyUI_App.py'],
     pathex=[REPO_ROOT],
     binaries=[],
     datas=([(icon_path, 'static/assets')] if os.path.exists(icon_path) else []) + [(build_info_path, '.')],
-    hiddenimports=['PIL', 'PIL._tkinter_finder', 'PIL.ImageTk', 'win32mica', 'requests', 'ctypes', 'ctypes.wintypes',
-                               'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.font',
-                               'customtkinter', 'imageio', 'imageio.v2', 'imageio_ffmpeg', 'numpy', 'importlib.metadata',
-                               'comfyui_desktop', 'comfyui_desktop.glass', 'comfyui_desktop.orphan_reap',
-                               'comfyui_desktop.config', 'comfyui_desktop.diagnostics', 'comfyui_desktop.backend_manager',
-                               'comfyui_desktop.gallery', 'comfyui_desktop.main_window', 'comfyui_desktop.widgets',
-                               'comfyui_desktop.ws_client'],
-    hookspath=[],
+    hiddenimports=[
+        # Imaging / tkinter bridge
+        'PIL', 'PIL._tkinter_finder', 'PIL.ImageTk',
+        'tkinter', 'tkinter.ttk', 'tkinter.filedialog', 'tkinter.messagebox', 'tkinter.font',
+        'customtkinter', 'numpy', 'requests', 'ctypes', 'ctypes.wintypes', 'importlib.metadata',
+        # Lazily imported feature deps (guarded try/except at the call site, so
+        # the module graph cannot discover them statically).
+        'imageio', 'imageio.v2', 'imageio_ffmpeg',
+        'psutil',                                  # orphan_reap.reap_process_tree()
+        'win32com', 'win32com.client', 'win32clipboard',   # SAPI TTS + clipboard copy
+        # Top-level app modules imported lazily inside functions.
+        'orphan_reap', 'glass',
+        # comfyui_desktop package (real submodules only — verified against the
+        # tracked tree; 'comfyui_desktop.glass'/'.orphan_reap' do NOT exist,
+        # those are top-level modules and are listed above.)
+        'comfyui_desktop', 'comfyui_desktop.config', 'comfyui_desktop.diagnostics',
+        'comfyui_desktop.backend_manager', 'comfyui_desktop.gallery',
+        'comfyui_desktop.main_window', 'comfyui_desktop.widgets',
+        'comfyui_desktop.ws_client',
+    ] + _numpy_core_hidden,
+    # Feed the in-process hook dirs computed above. Passing [] here (the previous
+    # behaviour) silently dropped the numpy/PIL binary hooks and produced the
+    # broken ~63 MB bundle the comment above warns about.
+    hookspath=hook_dirs,
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
