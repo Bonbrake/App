@@ -4,6 +4,22 @@ Wraps official ComfyUI 0.29.0 portable
 """
 import os
 import sys
+
+# ---------------------------------------------------------------------------
+# ZERO-CONSOLE GUI INITIALIZATION
+# Instantly hide any attached black console/terminal window on Windows GUI
+# launch. All logs, prints, and errors are cleanly captured by _SafeStreamWriter,
+# written to diagnostics/app.log, and displayed in the in-app Debug Console tab.
+# ---------------------------------------------------------------------------
+if os.name == "nt" and "--show-console" not in sys.argv:
+    try:
+        import ctypes
+        _h_console = ctypes.windll.kernel32.GetConsoleWindow()
+        if _h_console:
+            ctypes.windll.user32.ShowWindow(_h_console, 0)  # 0 = SW_HIDE
+    except Exception:
+        pass
+
 import json
 import time
 import random
