@@ -6993,8 +6993,15 @@ class ComfyUIApp:
             self._set_status("Open dir error: %s" % str(e)[:30])
 
     def _toggle_matrix_hud(self):
-        """Focus or launch Matrix AI HUD Companion application."""
+        """Focus or launch Matrix AI HUD Companion application with instant IPC response."""
         try:
+            trigger_file = r"C:\LocalCoder\.show_hud"
+            try:
+                with open(trigger_file, "w", encoding="utf-8") as f:
+                    f.write("show")
+            except Exception:
+                pass
+
             hud_script = r"C:\LocalCoder\hermes_app.py"
             python_exe = r"C:\Users\jakeb\AppData\Local\Programs\Python\Python311\pythonw.exe"
             if not os.path.exists(python_exe):
@@ -7002,8 +7009,8 @@ class ComfyUIApp:
             if os.path.exists(hud_script):
                 flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 subprocess.Popen([python_exe, hud_script], cwd=r"C:\LocalCoder", creationflags=flags)
-                self._set_status("Launched Matrix HUD Companion")
-                self._show_toast("Matrix HUD", "Launched Matrix AI HUD Companion")
+                self._set_status("Matrix HUD online & focused")
+                self._show_toast("Matrix HUD", "Matrix AI HUD online & focused")
             else:
                 self._set_status("Matrix HUD script not found at C:\\LocalCoder")
         except Exception as e:
@@ -7317,8 +7324,8 @@ class ComfyUIApp:
         top_row.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(top_row, text="Repository Source:", font=ctk.CTkFont(size=10, weight="bold"), text_color=TEXT).grid(row=0, column=0, padx=(0, 8), sticky="w")
-        repo_var = tk.StringVar(value="Bonbrake/App")
-        repo_menu = ctk.CTkOptionMenu(top_row, values=["Bonbrake/App", "Ltmonkeysmash/ComfyUIX"], variable=repo_var,
+        repo_var = tk.StringVar(value="Bonbrake/ComfyUIX")
+        repo_menu = ctk.CTkOptionMenu(top_row, values=["Bonbrake/ComfyUIX"], variable=repo_var,
                                       fg_color=BG_CARD, button_color=BORDER_MUTED, text_color=TEXT, font=ctk.CTkFont(size=10))
         repo_menu.grid(row=0, column=1, padx=4, sticky="w")
 

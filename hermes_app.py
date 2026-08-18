@@ -918,9 +918,14 @@ class HermesMatrixApp(QWidget):
             self._restore()
 
     def _restore(self):
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        try:
+            self.setWindowState(self.windowState() & ~Qt.WindowState.WindowMinimized | Qt.WindowState.WindowActive)
+            self.showNormal()
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
 
     # ---- Poll ----
     def _start_poll(self):

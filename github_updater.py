@@ -13,7 +13,7 @@ import urllib.error
 import threading
 
 DEFAULT_REPOS = [
-    {"name": "Bonbrake App (Official)", "repo": "Bonbrake/App", "branch": "main"},
+    {"name": "Bonbrake ComfyUIX (Official)", "repo": "Bonbrake/ComfyUIX", "branch": "main"},
 ]
 
 TRACKED_SCRIPTS = [
@@ -47,7 +47,7 @@ def save_local_build_info(info):
     except Exception:
         pass
 
-def check_for_updates(repo="Bonbrake/App", branch="main"):
+def check_for_updates(repo="Bonbrake/ComfyUIX", branch="main"):
     """
     Check GitHub REST API for latest commits and releases.
     Returns dict with update status and metadata.
@@ -107,7 +107,7 @@ def check_for_updates(repo="Bonbrake/App", branch="main"):
         
     return res
 
-def apply_script_update(repo="Bonbrake/App", branch="main", progress_callback=None):
+def apply_script_update(repo="Bonbrake/ComfyUIX", branch="main", progress_callback=None):
     """
     Download and apply raw Python script updates from GitHub into local application directories.
     """
