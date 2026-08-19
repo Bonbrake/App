@@ -28,11 +28,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Primary Functional QA Suite (53 Tests)
+      - name: Run Primary Functional QA Suite (60 Tests)
         run: |
           python qa_suite.py
 
-      - name: Run Multi-Angle Deep Stress & Math Suite (57+ Tests)
+      - name: Run Multi-Angle Deep Stress & Math Suite (62 Tests)
         run: |
           python multi_angle_debug.py
 

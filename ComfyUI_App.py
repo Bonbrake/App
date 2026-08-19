@@ -182,7 +182,7 @@ class AutoHideScrollFrame(ctk.CTkFrame):
 
         # Sleek dark Matrix cyber scrollbar replacing native grey ttk scrollbar
         self._vsb = ctk.CTkScrollbar(self, orientation="vertical", command=self._canvas.yview,
-                                     width=6, fg_color="#0F0F12", button_color="#1A2F23",
+                                     width=6, fg_color="#040A06", button_color="#1A2F23",
                                      button_hover_color=BRAND, corner_radius=3)
         self._canvas.configure(yscrollcommand=self._vsb.set)
         self._vsb.grid(row=0, column=1, sticky="ns")
@@ -201,10 +201,10 @@ class AutoHideScrollFrame(ctk.CTkFrame):
             if isinstance(color, (tuple, list)):
                 return color[1]
             elif color in (None, "transparent"):
-                return "#1A1A24"
+                return "#040A06"
             return color
         except Exception:
-            return "#1A1A24"
+            return "#040A06"
 
     def refresh_appearance(self):
         try:
@@ -250,7 +250,7 @@ def enable_auto_hide_scrollbar(scrollframe):
     try:
         sb = getattr(scrollframe, "_scrollbar", None)
         if sb:
-            sb.configure(width=6, fg_color="#0F0F12", button_color="#1A2F23",
+            sb.configure(width=6, fg_color="#040A06", button_color="#1A2F23",
                          button_hover_color=BRAND, corner_radius=3)
         scrollframe.grid_columnconfigure(1, weight=0, minsize=6)
     except Exception:
@@ -1090,6 +1090,50 @@ class ToolTip:
             pass
 
 
+class SafeTimerManager:
+    """Manages after() callback lifecycles to eliminate TclError on destroyed widgets."""
+    def __init__(self, root):
+        self.root = root
+        self._active = {}  # name -> timer_id
+
+    def schedule(self, name, delay_ms, callback, *args):
+        """Schedule a named timer. Auto-cancels any previous timer with the same name."""
+        self.cancel(name)
+        def _wrapper():
+            self._active.pop(name, None)
+            try:
+                if self.root.winfo_exists():
+                    callback(*args)
+            except (tk.TclError, RuntimeError):
+                pass
+        timer_id = self.root.after(delay_ms, _wrapper)
+        self._active[name] = timer_id
+        return timer_id
+
+    def cancel(self, name):
+        """Cancel a named timer if it exists."""
+        tid = self._active.pop(name, None)
+        if tid:
+            try:
+                self.root.after_cancel(tid)
+            except (tk.TclError, RuntimeError):
+                pass
+
+    def cancel_all(self):
+        """Cancel all active timers — call during shutdown."""
+        for tid in list(self._active.values()):
+            try:
+                self.root.after_cancel(tid)
+            except (tk.TclError, RuntimeError):
+                pass
+        self._active.clear()
+        # Bulk cancel any dangling Tcl timers
+        try:
+            for tid in self.root.tk.eval('after info').split():
+                self.root.after_cancel(tid)
+        except Exception:
+            pass
+
 
 # === ComfyUIApp class ===
 class ComfyUIApp:
@@ -1365,6 +1409,7 @@ class ComfyUIApp:
     def __init__(self, root):
         self.root = root
         self._running = True
+        self.timers = SafeTimerManager(root)
         # Initialize diagnostics system (crash handler + JSON logging + breadcrumbs)
         try:
             from comfyui_desktop.diagnostics import init_diagnostics, breadcrumb
@@ -1384,7 +1429,7 @@ class ComfyUIApp:
         root.geometry("1280x1120")
         root.minsize(880, 580)
         mode = ctk.get_appearance_mode().lower()
-        root.configure(bg="#F1F5F9" if mode == "light" else "#0F0F12")
+        root.configure(bg="#F1F5F9" if mode == "light" else "#040A06")
 
         self.tooltips_enabled = ctk.StringVar(value="1")
         self.current_tab = "txt2img"
@@ -1472,13 +1517,13 @@ class ComfyUIApp:
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Show window immediately, defer backend + gradient + updates + telemetry
-        root.after(50, self._update_tab_button_colors)
-        root.after(100, self._paint_header)
-        root.after(500, self._update_sidebar_hud_status)
-        root.after(1000, self._update_telemetry_tick)
-        root.after(1500, self._verify_desktop_shortcut_startup)
-        root.after(2000, lambda: self._check_github_updates(silent=True))
-        root.after(3000, self._start_header_gradient)
+        self.timers.schedule("tab_colors", 50, self._update_tab_button_colors)
+        self.timers.schedule("paint_header", 100, self._paint_header)
+        self.timers.schedule("hud_status", 500, self._update_sidebar_hud_status)
+        self.timers.schedule("telemetry", 1000, self._update_telemetry_tick)
+        self.timers.schedule("shortcut_verify", 1500, self._verify_desktop_shortcut_startup)
+        self.timers.schedule("github_updates", 2000, lambda: self._check_github_updates(silent=True))
+        self.timers.schedule("header_gradient", 3000, self._start_header_gradient)
         # NOTE: backend threads are scheduled ONCE here. main() used to ALSO
         # schedule them (after 500ms), spawning a redundant start that the
         # idempotency guard turned into a no-op but which muddied startup logs.
@@ -1650,8 +1695,16 @@ class ComfyUIApp:
         self.config_manager.save()
 
     def _build_backdrop(self):
-        """Initialize ambient backdrop."""
-        pass
+        """Build and start real-time Matrix Digital Code Rain background canvas."""
+        try:
+            from glass import MatrixRainCanvas
+            if not hasattr(self, "matrix_rain") or self.matrix_rain is None:
+                self.matrix_rain = MatrixRainCanvas(self.root, font_size=13, fps=24)
+                self.matrix_rain.place(x=0, y=0, relwidth=1, relheight=1)
+                self.matrix_rain.tk.call("lower", self.matrix_rain._w)
+                self.matrix_rain.start()
+        except Exception as e:
+            logging.error("Failed to initialize Matrix digital rain backdrop: %s", e)
 
     def _start_backend_threads(self):
         """Start backend polling threads after UI is first rendered.
@@ -1728,21 +1781,12 @@ class ComfyUIApp:
             return "ComfyUIX — Matrix Edition (v5.0 · %d MB)" % mb
         return "ComfyUIX — Matrix Edition (v5.0)"
 
+    # ------------------------------------------------------------------
     def _build_sidebar(self):
         sb = ctk.CTkFrame(self.root, width=230, corner_radius=0, fg_color=BG_SIDEBAR)
         sb.grid(row=0, column=0, rowspan=2, sticky="nsew")
         sb.grid_columnconfigure(0, weight=1)
         self.sidebar = sb
-
-        # Mount live Matrix digital rain inside sidebar canvas
-        try:
-            from glass import MatrixRainCanvas
-            self.sidebar_rain = MatrixRainCanvas(sb, font_size=13, fps=20)
-            self.sidebar_rain.place(x=0, y=0, relwidth=1, relheight=1)
-            self.sidebar_rain.tk.call("lower", self.sidebar_rain._w)
-            self.sidebar_rain.start()
-        except Exception as e:
-            logging.error("Failed to initialize sidebar Matrix rain: %s", e)
 
         # Logo header
         # Matrix Top Wordmark & Cyber Pill
@@ -1804,6 +1848,7 @@ class ComfyUIApp:
                                  font=self.FONT_SMALL)
         mode.set(getattr(self, "_current_appearance_val", "Dark"))
         mode.grid(row=r, column=0, padx=12, pady=2, sticky="ew")
+        ToolTip(mode, ("Theme Mode", "Switch between Dark and Matrix OLED visual themes."))
         r += 1
         scale = ctk.CTkOptionMenu(sb, values=["80%", "90%", "100%", "110%", "120%", "125%", "150%"],
                                   command=self._set_scaling,
@@ -1852,6 +1897,7 @@ class ComfyUIApp:
                                               command=lambda: self._check_github_updates(silent=False),
                                               font=ctk.CTkFont(family="Consolas", size=9))
         self.update_check_btn.grid(row=r, column=0, padx=12, pady=(0, 8), sticky="ew")
+        ToolTip(self.update_check_btn, ("Check for Updates", "Check GitHub for new ComfyUIX releases and auto-update."))
 
     def _apply_cursor_style(self, widget):
         try:
@@ -1867,7 +1913,7 @@ class ComfyUIApp:
 
     def _update_cursors_and_canvases(self):
         try:
-            bg_color = "#0F0F12"
+            bg_color = "#040A06"
             if hasattr(self, 'root') and self.root:
                 try:
                     self.root.configure(bg=bg_color)
@@ -2870,7 +2916,7 @@ class ComfyUIApp:
         # silently swallows every left-click from CTk widgets and makes the app
         # feel dead. Debounce is handled per-handler only (see _on_tab, _on_model, etc.).
 
-        self.top = ctk.CTkFrame(self.root, fg_color="transparent", corner_radius=0)
+        self.top = ctk.CTkFrame(self.root, fg_color=BG_APP, corner_radius=0)
         self.top.grid(row=0, column=1, padx=16, pady=12, sticky="nsew")
         self.top.grid_columnconfigure(0, weight=1)   # params column
         self.top.grid_columnconfigure(0, weight=1, minsize=320)   # params column
@@ -5023,7 +5069,7 @@ class ComfyUIApp:
         self._debug_refresh()
         # Auto-refresh every 3s while visible
         try:
-            self.root.after(3000, self._debug_autorefresh)
+            self.timers.schedule("debug_autorefresh", 3000, self._debug_autorefresh)
         except Exception:
             pass
 
@@ -5089,8 +5135,11 @@ class ComfyUIApp:
             pass
 
     def _debug_diagnose(self):
-        """Run full Matrix HUD, Cross-Browser, GPU, and System health self-test."""
-        try:
+        """Run full Matrix HUD, Cross-Browser, GPU, and System health self-test (threaded)."""
+        self._set_status("Running Matrix System Self-Test...")
+        import threading
+        def _run_diagnose():
+           try:
             import requests, time, subprocess
             from comfyui_desktop.diagnostics import breadcrumb, DIAG_DIR
             from comfyui_desktop import browser_doctor, gpu_doctor, shortcut_manager
@@ -5190,13 +5239,20 @@ class ComfyUIApp:
 
             msg = "\n".join(report_lines)
             logging.getLogger("comfyui_diag").info(msg)
-            if hasattr(self, "_debug_log_box") and self._debug_log_box.winfo_exists():
-                self._debug_log_box.delete("1.0", "end")
-                self._debug_log_box.insert("1.0", msg + "\n\n")
-            self._set_status("Matrix System Self-Test: ALL SYSTEMS NOMINAL (100% Ready)")
-            self._show_toast("Self-Test Complete", "Matrix HUD & ComfyUIX are 100% operational.")
-        except Exception as e:
+            def _update_gui():
+                try:
+                    if hasattr(self, "_debug_log_box") and self._debug_log_box.winfo_exists():
+                        self._debug_log_box.delete("1.0", "end")
+                        self._debug_log_box.insert("1.0", msg + "\n\n")
+                    self._set_status("Matrix System Self-Test: ALL SYSTEMS NOMINAL (100% Ready)")
+                    self._show_toast("Self-Test Complete", "Matrix HUD & ComfyUIX are 100% operational.")
+                except Exception:
+                    pass
+            if self.root.winfo_exists():
+                self.root.after(0, _update_gui)
+           except Exception as e:
             logging.error("Diagnose error: %s", e)
+        threading.Thread(target=_run_diagnose, daemon=True).start()
 
     def _debug_copy_report(self):
         """Copy the full JSON report to the clipboard."""
@@ -5231,7 +5287,7 @@ class ComfyUIApp:
         except Exception:
             pass
         try:
-            self.root.after(3000, self._debug_autorefresh)
+            self.timers.schedule("debug_autorefresh", 3000, self._debug_autorefresh)
         except Exception:
             pass
 
@@ -7455,6 +7511,11 @@ class ComfyUIApp:
     def on_close(self):
         """Clean and comprehensive application shutdown sequence."""
         self._running = False
+        # Cancel all pending timers to prevent orphaned callbacks
+        try:
+            self.timers.cancel_all()
+        except Exception:
+            pass
         try:
             if hasattr(self, "root") and self.root and self.root.winfo_exists():
                 geom = self.root.geometry()
@@ -7535,6 +7596,10 @@ class ComfyUIApp:
     def _force_quit(self):
         """Destroy the root window and force-exit the process to prevent hangs."""
         try:
+            self.timers.cancel_all()
+        except Exception:
+            pass
+        try:
             if hasattr(self, "matrix_rain") and self.matrix_rain:
                 self.matrix_rain.stop()
             self.root.destroy()
@@ -7563,8 +7628,8 @@ class ComfyUIApp:
         try:
             w = max(self.root.winfo_width() - 230, 400)
             h = 56
-            c0 = (20, 20, 24)
-            c1 = (35, 35, 42)
+            c0 = (4, 10, 6)    # #040A06 — matches BG_APP dark
+            c1 = (8, 21, 13)   # #08150D — matches BG_CARD dark
             grad = make_gradient(w, h, c0, c1, angle=90)
             photo = ImageTk.PhotoImage(grad)
             self._header_img = photo
@@ -8408,7 +8473,7 @@ class ComfyUIApp:
                           command=lambda: os.startfile(os.path.dirname(path))).grid(row=0, column=1, padx=2)
 
             textbox = ctk.CTkTextbox(win, font=ctk.CTkFont(family="Consolas", size=11),
-                                    wrap="none", fg_color=("#0f0f12", "#0f0f12"),
+                                    wrap="none", fg_color=BG_CARD,
                                     text_color="#d8d8e0")
             textbox.grid(row=1, column=0, padx=10, pady=(6, 10), sticky="nsew")
             win.grid_rowconfigure(1, weight=1)
@@ -8765,7 +8830,7 @@ class ComfyUIApp:
             pass
         if getattr(self, "_running", False) and hasattr(self, "root") and self.root:
             try:
-                self.root.after(2500, self._update_sidebar_hud_status)
+                self.timers.schedule("hud_status", 2500, self._update_sidebar_hud_status)
             except Exception:
                 pass
 
@@ -8893,7 +8958,7 @@ class ComfyUIApp:
 
         # Schedule next tick in 1500ms
         try:
-            self.root.after(1500, self._update_telemetry_tick)
+            self.timers.schedule("telemetry", 1500, self._update_telemetry_tick)
         except Exception:
             pass
 
@@ -9038,13 +9103,13 @@ def main():
     _reassert_tcl_tk_env()
     root = ctk.CTk()
     root.title("ComfyUIX")
-    root.configure(bg="#141416")
+    root.configure(bg="#040A06")
     app = ComfyUIApp(root)
     root.title(app._stamped_title())
     root.protocol("WM_DELETE_WINDOW", app.on_close)
-    root.after(100, lambda: app._paint_header())
+    app.timers.schedule("main_paint_header", 100, app._paint_header)
     # Backend threads scheduled ONCE here (the redundant __init__ schedule was removed).
-    root.after(500, lambda: app._start_backend_threads())
+    app.timers.schedule("main_backend_threads", 500, app._start_backend_threads)
     root.mainloop()
 
 

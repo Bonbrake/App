@@ -45,6 +45,31 @@ def _sanitize_text(text: str) -> str:
         text = text.replace(APP_DIR.replace("\\", "\\\\"), "[APP_DIR]")
     return text
 
+def _safe_destroy_app(root, app=None):
+    """Safely cancel all timers and background loops before destroying root window."""
+    if app is not None:
+        try:
+            if hasattr(app, "timers") and app.timers:
+                app.timers.cancel_all()
+            if hasattr(app, "matrix_rain") and app.matrix_rain:
+                app.matrix_rain.stop()
+        except Exception:
+            pass
+    try:
+        if root and root.winfo_exists():
+            for tid in root.tk.eval('after info').split():
+                try:
+                    root.after_cancel(tid)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    try:
+        if root and root.winfo_exists():
+            root.destroy()
+    except Exception:
+        pass
+
 
 class QATestRunner:
     def __init__(self, verbose: bool = False):
@@ -221,7 +246,7 @@ class QATestRunner:
             g3 = app._validate_geometry_bounds("1280x1120+9999+9999")
             self.record_test(cat, "Far Off-Screen Geometry Recovery", "9999" not in g3, f"Recovered to: {g3}")
 
-            root.destroy()
+            _safe_destroy_app(root, app)
         except Exception as e:
             self.record_test(cat, "Geometry Bounds Exception", False, str(e))
 
@@ -338,7 +363,7 @@ class QATestRunner:
             except Exception as e:
                 self.record_test(cat, "Input Media Pickers & Gallery Workflows", False, str(e))
 
-            root.destroy()
+            _safe_destroy_app(root, app)
         except Exception as e:
             self.record_test(cat, "Desktop GUI Exception", False, str(e))
 
@@ -421,9 +446,67 @@ class QATestRunner:
                 except Exception as e:
                     self.record_test(cat, f"Graph Builder: {m}", False, str(e))
 
-            root.destroy()
+            _safe_destroy_app(root, app)
         except Exception as e:
             self.record_test(cat, "Workflow Builders Exception", False, str(e))
+
+    # -------------------------------------------------------------------------
+    # 12. Matrix Theme & Color Token Audit
+    # -------------------------------------------------------------------------
+    def test_matrix_theme_and_color_tokens(self):
+        cat = "Matrix Theme & Palette Audit"
+        try:
+            import re
+            py_files = ["ComfyUI_App.py", "glass.py"]
+            for rel in py_files:
+                p = os.path.join(APP_DIR, rel)
+                if not os.path.isfile(p):
+                    continue
+                with open(p, "r", encoding="utf-8") as f:
+                    content = f.read()
+                # Ensure no banned grey backgrounds remain
+                banned_greys = re.findall(r'#(?:0F0F12|1A1A24|141416)\b', content, re.IGNORECASE)
+                self.record_test(cat, f"Obsidian Dark Theme Purity: {rel}", len(banned_greys) == 0,
+                                 f"Found {len(banned_greys)} deprecated grey values (Expected: 0)")
+        except Exception as e:
+            self.record_test(cat, "Color Token Audit Exception", False, str(e))
+
+    # -------------------------------------------------------------------------
+    # 13. SafeTimerManager & Live Matrix Rain Engine
+    # -------------------------------------------------------------------------
+    def test_safe_timer_and_matrix_rain(self):
+        cat = "SafeTimer & Rain Canvas Engine"
+        try:
+            import tkinter as tk
+            from glass import MatrixRainCanvas
+            from ComfyUI_App import SafeTimerManager
+
+            root = tk.Tk()
+            root.withdraw()
+
+            # 1. Test SafeTimerManager
+            mgr = SafeTimerManager(root)
+            fired = [False]
+            def _cb(): fired[0] = True
+            mgr.schedule("test_timer", 50, _cb)
+            has_active = "test_timer" in mgr._active
+            self.record_test(cat, "SafeTimerManager Schedule", has_active, "Timer registered in active dictionary")
+            mgr.cancel("test_timer")
+            self.record_test(cat, "SafeTimerManager Cancel", "test_timer" not in mgr._active, "Timer cancelled cleanly")
+            mgr.cancel_all()
+            self.record_test(cat, "SafeTimerManager Bulk Cancel", len(mgr._active) == 0, "All timers purged")
+
+            # 2. Test MatrixRainCanvas
+            canvas = MatrixRainCanvas(root, font_size=13, fps=20)
+            canvas.pack()
+            canvas.start()
+            self.record_test(cat, "MatrixRainCanvas Initialization & Start", canvas.running == True, "Live digital rain canvas started")
+            canvas.stop()
+            self.record_test(cat, "MatrixRainCanvas Safe Stop", canvas.running == False, "Canvas animation stopped gracefully")
+
+            _safe_destroy_app(root)
+        except Exception as e:
+            self.record_test(cat, "Timer & Rain Engine Exception", False, str(e))
 
     # -------------------------------------------------------------------------
     # Run All & Generate Reports
@@ -444,6 +527,8 @@ class QATestRunner:
         self.test_desktop_gui()
         self.test_matrix_hud()
         self.test_workflow_builders()
+        self.test_matrix_theme_and_color_tokens()
+        self.test_safe_timer_and_matrix_rain()
 
         total = len(self.results)
         passed = sum(1 for r in self.results if r["status"] == "PASS")

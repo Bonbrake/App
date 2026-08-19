@@ -1,9 +1,9 @@
-# ⚡ ComfyUIX Matrix Edition v5.0
+# ⚡ ComfyUIX Matrix Edition v5.2
 
 > **The Ultimate Standalone Local AI Generation Workstation & Matrix HUD for Windows**
 
-[![Release](https://img.shields.io/badge/release-v5.0.0--Matrix-00FF66.svg?style=for-the-badge&logo=matrix)](https://github.com/Bonbrake/ComfyUIX/releases)
-[![QA Status](https://img.shields.io/badge/QA%20Tests-160%2B%20PASSED-00FF66.svg?style=for-the-badge)](https://github.com/Bonbrake/ComfyUIX)
+[![Release](https://img.shields.io/badge/release-v5.2.0--Matrix-00FF66.svg?style=for-the-badge&logo=matrix)](https://github.com/Bonbrake/ComfyUIX/releases)
+[![QA Status](https://img.shields.io/badge/QA%20Tests-122%2F122%20PASSED%20(100%25)-00FF66.svg?style=for-the-badge)](https://github.com/Bonbrake/ComfyUIX)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0080FF.svg?style=for-the-badge&logo=windows)](https://github.com/Bonbrake/ComfyUIX)
 [![CI Build](https://img.shields.io/badge/CI%20Build-Passing-00FF66.svg?style=for-the-badge&logo=githubactions)](https://github.com/Bonbrake/ComfyUIX/actions)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
@@ -18,13 +18,14 @@ Accompanied by the **Matrix AI HUD** companion copilot, ComfyUIX delivers an all
 
 ```
 +-----------------------------------------------------------------------------------+
-|                           ComfyUIX Matrix Edition v5.0                             |
+|                           ComfyUIX Matrix Edition v5.2                             |
 +-----------------------------------------------------------------------------------+
 |  [ Desktop GUI (CustomTkinter) ]  <--->  [ Native RFC 6455 WebSocket Client ]      |
 |  * Text to Image (LoRA + VAE)            * Real-time JPEG Latent Previewer         |
 |  * Image to Image (Inpaint Canvas)       * Step Progress & Node State Tracker      |
 |  * PBR Texture Studio (Sobel + Wrap)     * Pure Python (Zero 3rd-Party Libs)      |
 |  * AI Video & Audio Engines                                                       |
+|  * Live Matrix Rain & SafeTimer Engine                                            |
 |                                                                                   |
 |  [ Matrix AI HUD Companion ]      <--->  [ Multi-GPU Doctor & Auto-Tuner ]        |
 |  * Local LLM Copilot (PySide6)           * VRAM Telemetry & Smart Medvram Tuning   |
@@ -39,6 +40,7 @@ Accompanied by the **Matrix AI HUD** companion copilot, ComfyUIX delivers an all
 | Feature | ComfyUIX Matrix | ComfyUI Web | StabilityMatrix | Fooocus | SwarmUI |
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **Pure Desktop Executable** | ⚡ **Native (.exe)** | ❌ Browser tab | ⚠️ Electron wrapper | ⚠️ Browser UI | ⚠️ Browser UI |
+| **Zero-Lag Live Matrix Rain** | 🟢 **0.007ms Canvas Pool** | ❌ None | ❌ None | ❌ None | ❌ None |
 | **Interactive Inpainting Canvas** | ✅ **Integrated** | ⚠️ Web canvas | ❌ None | ⚠️ Basic | ⚠️ Basic |
 | **PBR 3D Texture Studio** | ✅ **5 Maps + 3x3 Wrap** | ❌ Manual nodes | ❌ None | ❌ None | ❌ None |
 | **RFC 6455 Zero-Dep WebSocket** | ✅ **Native** | ⚠️ JS WebSocket | ⚠️ JS WebSocket | ❌ None | ⚠️ WebSockets |

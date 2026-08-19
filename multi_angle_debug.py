@@ -383,6 +383,56 @@ def test_vector_6_config_resilience():
         record(cat, "Config Resilience Exception", False, str(e))
 
 # =========================================================================
+# VECTOR 7: UI Frame Timing, Multi-Resolution Resize & Rain Performance
+# =========================================================================
+def test_vector_7_resize_latency_and_frame_timing():
+    cat = "Vector 7: UI Frame Timing & Resize Latency"
+    try:
+        import time
+        import tkinter as tk
+        from glass import MatrixRainCanvas
+        from ComfyUI_App import SafeTimerManager
+
+        root = _get_tk_root()
+
+        # 1. Benchmark MatrixRainCanvas frame step
+        canvas = MatrixRainCanvas(root, font_size=13, fps=20)
+        canvas.pack()
+        canvas.start()
+        
+        t0 = time.perf_counter()
+        for _ in range(10):
+            canvas._tick()
+        t_tick = (time.perf_counter() - t0) / 10.0 * 1000.0  # ms per tick
+        
+        record(cat, "Matrix Rain Frame Step Latency (<5ms)", t_tick < 5.0, f"Average frame step: {t_tick:.3f} ms")
+        
+        # 2. Benchmark canvas resize / pool rebuild latency
+        t0 = time.perf_counter()
+        canvas._rebuild_pool()
+        t_rebuild = (time.perf_counter() - t0) * 1000.0
+        record(cat, "Rain Canvas Pool Rebuild (<25ms)", t_rebuild < 25.0, f"Pool rebuild time: {t_rebuild:.3f} ms")
+
+        canvas.stop()
+        canvas.destroy()
+
+        # 3. Benchmark SafeTimerManager throughput (1000 timers)
+        mgr = SafeTimerManager(root)
+        t0 = time.perf_counter()
+        for i in range(1000):
+            mgr.schedule(f"timer_{i}", 1000, lambda: None)
+        t_sched = (time.perf_counter() - t0) * 1000.0
+        record(cat, "SafeTimerManager 1000-Timer Schedule Throughput", t_sched < 50.0, f"Scheduled 1000 timers in {t_sched:.3f} ms")
+        
+        t0 = time.perf_counter()
+        mgr.cancel_all()
+        t_purge = (time.perf_counter() - t0) * 1000.0
+        record(cat, "SafeTimerManager Bulk Purge Latency", t_purge < 20.0, f"Purged all timers in {t_purge:.3f} ms")
+
+    except Exception as e:
+        record(cat, "Resize Latency Exception", False, str(e))
+
+# =========================================================================
 # MAIN TEST RUNNER
 # =========================================================================
 if __name__ == "__main__":
@@ -396,6 +446,7 @@ if __name__ == "__main__":
     test_vector_4_websocket_protocol()
     test_vector_5_inpaint_canvas()
     test_vector_6_config_resilience()
+    test_vector_7_resize_latency_and_frame_timing()
     
     passed_count = sum(1 for r in results if r["passed"])
     failed_count = sum(1 for r in results if not r["passed"])
@@ -409,3 +460,4 @@ if __name__ == "__main__":
         sys.exit(1)
     else:
         sys.exit(0)
+
