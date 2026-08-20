@@ -2614,25 +2614,33 @@ class ComfyUIApp:
             act_bar.grid_columnconfigure(2, weight=1)
             act_bar.grid_columnconfigure(3, weight=1)
 
-            ctk.CTkButton(act_bar, text="👁 Preview", height=24, corner_radius=4,
-                          fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=BRAND,
-                          font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
-                          command=lambda fp=fpath: self._send_gallery_to_preview(fp)).grid(row=0, column=0, padx=2, sticky="ew")
+            btn_prev = ctk.CTkButton(act_bar, text="👁 Preview", height=24, corner_radius=4,
+                                     fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=BRAND,
+                                     font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+                                     command=lambda fp=fpath: self._send_gallery_to_preview(fp))
+            btn_prev.grid(row=0, column=0, padx=2, sticky="ew")
+            ToolTip(btn_prev, ("Preview", "Load image in main Studio preview canvas."))
 
-            ctk.CTkButton(act_bar, text="⚡ View", height=24, corner_radius=4,
-                          fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                          font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
-                          command=lambda fp=fpath, fn=fname: self._show_gallery_lightbox(fp, fn)).grid(row=0, column=1, padx=2, sticky="ew")
+            btn_view = ctk.CTkButton(act_bar, text="⚡ View", height=24, corner_radius=4,
+                                     fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
+                                     font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+                                     command=lambda fp=fpath, fn=fname: self._show_gallery_lightbox(fp, fn))
+            btn_view.grid(row=0, column=1, padx=2, sticky="ew")
+            ToolTip(btn_view, ("View Lightbox", "Open full-resolution image viewer."))
 
-            ctk.CTkButton(act_bar, text="📁", height=24, width=28, corner_radius=4,
-                          fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
-                          font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
-                          command=lambda fp=fpath: subprocess.Popen(f'explorer /select,"{fp}"')).grid(row=0, column=2, padx=2, sticky="ew")
+            btn_exp = ctk.CTkButton(act_bar, text="📁", height=24, width=28, corner_radius=4,
+                                    fg_color=BG_CARD_ALT, hover_color=BRAND_HOVER, text_color=TEXT,
+                                    font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+                                    command=lambda fp=fpath: subprocess.Popen(f'explorer /select,"{fp}"'))
+            btn_exp.grid(row=0, column=2, padx=2, sticky="ew")
+            ToolTip(btn_exp, ("Reveal File", "Open containing folder in File Explorer."))
 
-            ctk.CTkButton(act_bar, text="🗑", height=24, width=28, corner_radius=4,
-                          fg_color="#2A1114", hover_color="#551111", text_color="#FF6B6B",
-                          font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
-                          command=lambda fp=fpath: self._delete_gallery_file(fp)).grid(row=0, column=3, padx=2, sticky="ew")
+            btn_del = ctk.CTkButton(act_bar, text="🗑", height=24, width=28, corner_radius=4,
+                                    fg_color="#2A1114", hover_color="#551111", text_color="#FF6B6B",
+                                    font=ctk.CTkFont(family="Consolas", size=9, weight="bold"),
+                                    command=lambda fp=fpath: self._delete_gallery_file(fp))
+            btn_del.grid(row=0, column=3, padx=2, sticky="ew")
+            ToolTip(btn_del, ("Delete Image", "Move or permanently delete image file."))
 
             # Click & hover bindings
             for w in (card, img_container):
@@ -3578,9 +3586,11 @@ class ComfyUIApp:
         seed_e = ctk.CTkEntry(seed_f, textvariable=self.video_seed_var, width=120, font=self.FONT_NORMAL,
                               fg_color=BG_CARD, text_color=TEXT)
         seed_e.grid(row=0, column=1, padx=4, sticky="w")
-        ctk.CTkButton(seed_f, text="🎲", width=28, height=24, font=ctk.CTkFont(size=12),
-                      fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
-                      command=lambda: self.video_seed_var.set(str(random.randint(0, 2**32)))).grid(row=0, column=4, padx=2)
+        dice_btn = ctk.CTkButton(seed_f, text="🎲", width=28, height=24, font=ctk.CTkFont(size=12),
+                                fg_color=ACCENT2, hover_color=ACCENT2_HOVER, text_color="#FFFFFF",
+                                command=lambda: self.video_seed_var.set(str(random.randint(0, 2**32))))
+        dice_btn.grid(row=0, column=4, padx=2)
+        ToolTip(dice_btn, ("Randomize Seed", "Generate a new random seed integer."))
         seed_lock = ctk.CTkSwitch(seed_f, text="Random", variable=self.video_seed_lock,
                                   font=self.FONT_NORMAL, text_color=TEXT, fg_color=BORDER,
                                   progress_color=ACCENT2, button_color=TEXT)
