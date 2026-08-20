@@ -30,7 +30,11 @@ results = []
 def record(category, test_name, passed, details=""):
     results.append({"category": category, "test": test_name, "passed": passed, "details": details})
     status_str = "✔ PASS" if passed else "✖ FAIL"
-    print(f"[{status_str}] [{category}] {test_name}: {details}")
+    try:
+        print(f"[{status_str}] [{category}] {test_name}: {details}")
+    except UnicodeEncodeError:
+        safe_status = "[PASS]" if passed else "[FAIL]"
+        print(f"[{safe_status}] [{category}] {test_name}: {details}".encode("ascii", errors="replace").decode("ascii"))
 
 # =========================================================================
 # VECTOR 1: Static AST & Duplicate Method Scan Across Codebase
