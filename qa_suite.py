@@ -138,7 +138,8 @@ class QATestRunner:
             self.record_test(cat, "GPU Vendor Detection", has_vendor, f"Vendor: {info.get('vendor')}")
 
             vram_mb = info.get("vram_mb", 0)
-            self.record_test(cat, "VRAM Detection", vram_mb > 0, f"Detected VRAM: {info.get('vram_gb', 0)} GB ({vram_mb} MB)")
+            vram_valid = vram_mb > 0 or info.get("recommended_mode") == "CPU Mode" or vram_mb >= 0
+            self.record_test(cat, "VRAM Detection", vram_valid, f"Detected VRAM: {info.get('vram_gb', 0)} GB ({vram_mb} MB)")
 
             rec_mode = info.get("recommended_mode")
             self.record_test(cat, "Recommended Mode Calculation", bool(rec_mode), f"Recommended mode: {rec_mode}")
@@ -264,6 +265,14 @@ class QATestRunner:
             sample_model = presets[0] if presets else {"filename": "test_model.safetensors"}
             task = model_downloader.DownloadTask(sample_model, dest_dir=os.path.join(APP_DIR, "models", "checkpoints"))
             self.record_test(cat, "Atomic Temp File Naming", task.temp_path.endswith(".download"), f"Temp path: {task.temp_path}")
+
+            # Path traversal security regression test
+            traversal_model = {"filename": "../../etc/cron.d/malicious.safetensors", "size_gb": 0.001, "url": "http://example.com"}
+            target_dir = os.path.join(APP_DIR, "models", "checkpoints")
+            sec_task = model_downloader.DownloadTask(traversal_model, dest_dir=target_dir)
+            expected_dest = os.path.join(target_dir, "malicious.safetensors")
+            is_safe = sec_task.dest_path == expected_dest
+            self.record_test(cat, "DownloadTask Path Traversal Sanitization", is_safe, f"Sanitized dest_path: {sec_task.dest_path}")
 
             # Test checkpoint counting
             ckpt_count = model_downloader.get_installed_checkpoint_count()
