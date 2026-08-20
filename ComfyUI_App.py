@@ -7808,10 +7808,13 @@ class ComfyUIApp:
                 if found:
                     return True
             import psutil
-            for p in psutil.process_iter(["name", "cmdline"]):
-                cmd = " ".join(p.info.get("cmdline") or []).lower()
-                if "hermes_app.py" in cmd:
-                    return True
+            for p in psutil.process_iter(["name"]):
+                try:
+                    cmd = " ".join(p.cmdline() or []).lower()
+                    if "hermes_app.py" in cmd:
+                        return True
+                except (psutil.AccessDenied, psutil.NoSuchProcess, OSError, PermissionError):
+                    continue
         except Exception:
             pass
         return False
