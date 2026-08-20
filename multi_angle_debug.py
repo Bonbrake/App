@@ -22,6 +22,17 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = HERE
 
@@ -29,7 +40,7 @@ results = []
 
 def record(category, test_name, passed, details=""):
     results.append({"category": category, "test": test_name, "passed": passed, "details": details})
-    status_str = "✔ PASS" if passed else "✖ FAIL"
+    status_str = "PASS" if passed else "FAIL"
     print(f"[{status_str}] [{category}] {test_name}: {details}")
 
 # =========================================================================
