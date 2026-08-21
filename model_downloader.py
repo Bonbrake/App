@@ -611,17 +611,27 @@ def download_custom_url(url: str, custom_name: str = "", model_type: str = "chec
     url = url.strip()
     if not url:
         raise ValueError("URL cannot be empty")
-    
+
+    # Security: Validate URL scheme to prevent SSRF and arbitrary local file reads (e.g. file://)
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError("Invalid URL scheme. Only HTTP and HTTPS protocols are supported.")
+
     if not custom_name:
-        parsed = urllib.parse.urlparse(url)
         path = parsed.path
         filename = os.path.basename(path)
         if not filename or "?" in filename:
             filename = "custom_model.safetensors"
     else:
         filename = custom_name
-        if not filename.endswith((".safetensors", ".ckpt", ".pth", ".bin")):
-            filename += ".safetensors"
+
+    # Security: Sanitize filename to prevent path traversal (e.g., ../ or ..\)
+    filename = os.path.basename(filename.replace("\\", "/")).strip()
+    if not filename or filename in (".", ".."):
+        filename = "custom_model.safetensors"
+
+    if not filename.endswith((".safetensors", ".ckpt", ".pth", ".bin")):
+        filename += ".safetensors"
 
     dest_dir = get_model_target_dir(model_type)
 
