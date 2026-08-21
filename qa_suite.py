@@ -19,6 +19,12 @@ import argparse
 import traceback
 from datetime import datetime
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ComfyUIX_QA")
@@ -94,7 +100,12 @@ class QATestRunner:
         }
         self.results.append(res)
         status_icon = "✔ PASS" if passed else "✖ FAIL"
-        logger.info(f"[{status_icon}] [{category}] {test_name}: {sanitized_details}")
+        msg = f"[{status_icon}] [{category}] {test_name}: {sanitized_details}"
+        try:
+            logger.info(msg)
+        except UnicodeEncodeError:
+            ascii_status = "PASS" if passed else "FAIL"
+            logger.info(f"[{ascii_status}] [{category}] {test_name}: {sanitized_details}")
 
     # -------------------------------------------------------------------------
     # 1. Platform & Environment Tests
