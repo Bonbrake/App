@@ -125,6 +125,21 @@ def is_texture_file(filepath: str) -> bool:
             return True
     return False
 
+def _sobel_numpy(arr):
+    """Pure numpy Sobel filter fallback when scipy is not installed."""
+    import numpy as np
+    dx = np.zeros_like(arr)
+    dy = np.zeros_like(arr)
+    dx[1:-1, 1:-1] = (
+        (arr[:-2, 2:] + 2.0 * arr[1:-1, 2:] + arr[2:, 2:]) -
+        (arr[:-2, :-2] + 2.0 * arr[1:-1, :-2] + arr[2:, :-2])
+    ) / 8.0
+    dy[1:-1, 1:-1] = (
+        (arr[2:, :-2] + 2.0 * arr[2:, 1:-1] + arr[2:, 2:]) -
+        (arr[:-2, :-2] + 2.0 * arr[:-2, 1:-1] + arr[:-2, 2:])
+    ) / 8.0
+    return dx, dy
+
 def generate_pbr_maps(image_path: str) -> dict:
     """Generate complete PBR Texture Map Suite (Normal, Roughness, Height, AO, TGA).
     
@@ -132,7 +147,6 @@ def generate_pbr_maps(image_path: str) -> dict:
     """
     try:
         import numpy as np
-        from scipy.ndimage import sobel
     except ImportError:
         np = None
 
@@ -159,8 +173,14 @@ def generate_pbr_maps(image_path: str) -> dict:
 
             # 2. Tangent-space Normal Map (Sobel filter)
             if gray_arr is not None:
-                dx = sobel(gray_arr, axis=1) * 3.0
-                dy = sobel(gray_arr, axis=0) * 3.0
+                try:
+                    from scipy.ndimage import sobel
+                    dx = sobel(gray_arr, axis=1) * 3.0
+                    dy = sobel(gray_arr, axis=0) * 3.0
+                except ImportError:
+                    dx, dy = _sobel_numpy(gray_arr)
+                    dx *= 3.0
+                    dy *= 3.0
                 dz = np.ones_like(gray_arr)
                 norm = np.sqrt(dx**2 + dy**2 + dz**2)
                 norm = np.maximum(norm, 1e-6)
