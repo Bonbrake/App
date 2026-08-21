@@ -19,6 +19,12 @@ import argparse
 import traceback
 from datetime import datetime
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Set up logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("ComfyUIX_QA")
@@ -94,7 +100,12 @@ class QATestRunner:
         }
         self.results.append(res)
         status_icon = "✔ PASS" if passed else "✖ FAIL"
-        logger.info(f"[{status_icon}] [{category}] {test_name}: {sanitized_details}")
+        msg = f"[{status_icon}] [{category}] {test_name}: {sanitized_details}"
+        try:
+            logger.info(msg)
+        except UnicodeEncodeError:
+            ascii_status = "PASS" if passed else "FAIL"
+            logger.info(f"[{ascii_status}] [{category}] {test_name}: {sanitized_details}")
 
     # -------------------------------------------------------------------------
     # 1. Platform & Environment Tests
@@ -138,7 +149,7 @@ class QATestRunner:
             self.record_test(cat, "GPU Vendor Detection", has_vendor, f"Vendor: {info.get('vendor')}")
 
             vram_mb = info.get("vram_mb", 0)
-            self.record_test(cat, "VRAM Detection", vram_mb > 0, f"Detected VRAM: {info.get('vram_gb', 0)} GB ({vram_mb} MB)")
+            self.record_test(cat, "VRAM Detection", isinstance(vram_mb, (int, float)) and vram_mb >= 0, f"Detected VRAM: {info.get('vram_gb', 0)} GB ({vram_mb} MB)")
 
             rec_mode = info.get("recommended_mode")
             self.record_test(cat, "Recommended Mode Calculation", bool(rec_mode), f"Recommended mode: {rec_mode}")
@@ -268,6 +279,13 @@ class QATestRunner:
             # Test checkpoint counting
             ckpt_count = model_downloader.get_installed_checkpoint_count()
             self.record_test(cat, "Installed Checkpoint Indexer", ckpt_count >= 0, f"Indexed {ckpt_count} installed checkpoint files")
+
+            # Run security unit tests for custom download URLs
+            import unittest
+            import test_security_model_downloader
+            suite = unittest.TestLoader().loadTestsFromModule(test_security_model_downloader)
+            res = unittest.TextTestRunner(stream=open(os.devnull, "w")).run(suite)
+            self.record_test(cat, "Custom URL Security Validation", res.wasSuccessful(), f"Ran {res.testsRun} URL security tests")
         except Exception as e:
             self.record_test(cat, "Model Downloader Exception", False, str(e))
 

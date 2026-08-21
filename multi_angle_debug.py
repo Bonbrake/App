@@ -27,10 +27,21 @@ ROOT_DIR = HERE
 
 results = []
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 def record(category, test_name, passed, details=""):
     results.append({"category": category, "test": test_name, "passed": passed, "details": details})
     status_str = "✔ PASS" if passed else "✖ FAIL"
-    print(f"[{status_str}] [{category}] {test_name}: {details}")
+    msg = f"[{status_str}] [{category}] {test_name}: {details}"
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        ascii_status = "PASS" if passed else "FAIL"
+        print(f"[{ascii_status}] [{category}] {test_name}: {details}".encode("ascii", "replace").decode("ascii"))
 
 # =========================================================================
 # VECTOR 1: Static AST & Duplicate Method Scan Across Codebase
