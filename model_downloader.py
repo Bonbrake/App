@@ -112,6 +112,19 @@ def get_model_target_dir(model_type: str, base_dir: Optional[str] = None) -> str
     else:
         return get_checkpoints_dir(base_dir)
 
+def sanitize_filename(filename: str, fallback: str = "custom_model.safetensors") -> str:
+    """Sanitize filename to prevent path traversal vulnerabilities."""
+    if not filename:
+        return fallback
+    filename = urllib.parse.unquote(filename)
+    filename = filename.replace("\\", "/")
+    filename = os.path.basename(filename)
+    filename = filename.lstrip(". ").strip()
+    if not filename:
+        return fallback
+    return filename
+
+
 def get_free_disk_space_gb(target_dir: str) -> float:
     """Return available free disk space in GB for the partition hosting target_dir."""
     try:
@@ -433,9 +446,15 @@ def get_installed_checkpoint_count() -> int:
 class DownloadTask:
     """Represents an active or queued model download with disk validation and preview caching."""
     def __init__(self, model_info: Dict[str, Any], dest_dir: str, on_progress: Optional[Callable] = None, on_complete: Optional[Callable] = None):
-        self.model_info = model_info
+        self.model_info = model_info.copy()
+        raw_fn = self.model_info.get("filename", "")
+        safe_fn = sanitize_filename(raw_fn, fallback="custom_model.safetensors")
+        self.model_info["filename"] = safe_fn
         self.dest_dir = dest_dir
-        self.dest_path = os.path.join(dest_dir, model_info["filename"])
+        self.dest_path = os.path.abspath(os.path.join(dest_dir, safe_fn))
+        dest_dir_abs = os.path.abspath(dest_dir)
+        if os.path.commonpath([dest_dir_abs, self.dest_path]) != dest_dir_abs:
+            raise ValueError(f"Path traversal detected: target path '{self.dest_path}' is outside destination directory '{dest_dir_abs}'")
         self.temp_path = self.dest_path + ".download"
         self.on_progress = on_progress
         self.on_complete = on_complete
@@ -615,11 +634,13 @@ def download_custom_url(url: str, custom_name: str = "", model_type: str = "chec
     if not custom_name:
         parsed = urllib.parse.urlparse(url)
         path = parsed.path
-        filename = os.path.basename(path)
-        if not filename or "?" in filename:
+        raw_name = os.path.basename(path.replace("\\", "/"))
+        if not raw_name or "?" in raw_name:
             filename = "custom_model.safetensors"
+        else:
+            filename = sanitize_filename(raw_name, fallback="custom_model.safetensors")
     else:
-        filename = custom_name
+        filename = sanitize_filename(custom_name, fallback="custom_model.safetensors")
         if not filename.endswith((".safetensors", ".ckpt", ".pth", ".bin")):
             filename += ".safetensors"
 
