@@ -17,10 +17,22 @@ import json
 import math
 import io
 import struct
-import numpy as np
-from PIL import Image
+try:
+    import numpy as np
+except ImportError:
+    np = None
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = HERE
